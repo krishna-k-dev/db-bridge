@@ -1,0 +1,59 @@
+{
+  "connections": [
+    {
+      "id": "conn_1760496491293",
+      "name": "Test",
+      "server": "localhost",
+      "database": "FakeCollege",
+      "user": "sa",
+      "password": "Your_strong@Passw0rd",
+      "options": {
+        "trustServerCertificate": true
+      },
+      "createdAt": "2025-10-15T02:48:11.293Z",
+      "lastTested": "2025-10-15T04:51:20.932Z",
+      "port": 1433,
+      "stream": false,
+      "parseJSON": false,
+      "arrayRowMode": false,
+      "validateConnection": true
+    }
+  ],
+  "jobs": [
+    {
+      "id": "job_1760502121347",
+      "name": "test",
+      "enabled": true,
+      "connectionId": "conn_1760496491293",
+      "query": "SELECT TOP 5 s.student_id, s.first_name, s.last_name, c.name AS college, d.name AS department, s.email, s.enrolled_year FROM dbo.students s JOIN dbo.colleges c ON s.college_id = c.college_id JOIN dbo.departments d ON s.department_id = d.department_id ORDER BY s.student_id;",
+      "schedule": "*/2 * * * *",
+      "trigger": "always",
+      "destinations": [
+        {
+          "type": "custom_api",
+          "url": "http://localhost:8004/api/dashboard/test",
+          "method": "POST"
+        }
+      ],
+      "lastRun": "2025-10-15T06:22:00.164Z"
+    },
+    {
+      "id": "job_1760505971286",
+      "name": "Create Excel",
+      "enabled": true,
+      "connectionId": "conn_1760496491293",
+      "query": "SELECT TOP 500 s.student_id, s.first_name, s.last_name, c.name AS college, d.name AS department, s.email, s.enrolled_year FROM dbo.students s JOIN dbo.colleges c ON s.college_id = c.college_id JOIN dbo.departments d ON s.department_id = d.department_id ORDER BY s.student_id;",
+      "schedule": "manual",
+      "trigger": "always",
+      "destinations": [
+        {
+          "type": "excel",
+          "filePath": "c:/Users/user/Downloads/SQLBRIDGE",
+          "sheetName": "Collage Student",
+          "mode": "replace"
+        }
+      ],
+      "lastRun": "2025-10-15T06:22:00.981Z"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+node_modules/
+dist/
+release/
+logs/*.log
+config/google-credentials.json
+config/jobs.json
+*.log
+.DS_Store
+Thumbs.db

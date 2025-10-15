@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SQL Bridge - Data Sync App</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <!-- Custom Title Bar -->
+    <div class="title-bar">
+      <div class="title-bar-left">
+        <img src="../icon/logo.png" class="title-bar-logo" alt="Logo" />
+        <span class="title-bar-title">SQL Bridge - Data Sync App</span>
+      </div>
+      <div class="title-bar-controls">
+        <button class="title-bar-btn minimize" id="minimize-btn">─</button>
+        <button class="title-bar-btn maximize" id="maximize-btn">□</button>
+        <button class="title-bar-btn close" id="close-btn">✕</button>
+      </div>
+    </div>
+
+    <div class="app-container">
+      <!-- Sidebar Navigation -->
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <h1 class="logo">
+            <img
+              src="../icon/refresh-ccw.svg"
+              style="
+                width: 24px;
+                height: 24px;
+                vertical-align: middle;
+                margin-right: 8px;
+              "
+            />
+            SQL Bridge
+          </h1>
+          <p class="tagline">Data Sync Automation</p>
+        </div>
+
+        <nav class="sidebar-nav">
+          <button class="nav-item active" data-page="connections">
+            <span class="icon"
+              ><img src="../icon/cable.svg" class="nav-icon"
+            /></span>
+            <span class="label">Connections</span>
+            <span class="badge" id="connections-count">0</span>
+          </button>
+          <button class="nav-item" data-page="jobs">
+            <span class="icon"
+              ><img src="../icon/settings.svg" class="nav-icon"
+            /></span>
+            <span class="label">Jobs</span>
+            <span class="badge" id="jobs-count">0</span>
+          </button>
+          <button class="nav-item" data-page="logs">
+            <span class="icon"
+              ><img src="../icon/clipboard-clock.svg" class="nav-icon"
+            /></span>
+            <span class="label">Logs</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <div class="status-indicator">
+            <span class="status-dot"></span>
+            <span class="status-text">Ready</span>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Content Area -->
+      <main class="main-content">
+        <!-- Connections Page -->
+        <section class="page active" id="connections-page">
+          <header class="page-header">
+            <div>
+              <h2 class="page-title">SQL Server Connections</h2>
+              <p class="page-subtitle">Manage your database connections</p>
+            </div>
+            <button class="btn btn-primary" id="add-connection-btn">
+              <span>➕</span> Add Connection
+            </button>
+          </header>
+
+          <div class="content-area">
+            <div id="connections-list" class="cards-grid"></div>
+
+            <div
+              id="connections-empty"
+              class="empty-state"
+              style="display: none"
+            >
+              <div class="empty-icon">🔌</div>
+              <h3>No Connections Yet</h3>
+              <p>
+                Start by adding your first SQL Server connection to begin
+                syncing data
+              </p>
+              <button
+                class="btn btn-primary"
+                onclick="document.getElementById('add-connection-btn').click()"
+              >
+                Add Connection
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Jobs Page -->
+        <section class="page" id="jobs-page">
+          <header class="page-header">
+            <div>
+              <h2 class="page-title">Sync Jobs</h2>
+              <p class="page-subtitle">Automated data synchronization tasks</p>
+            </div>
+            <button class="btn btn-primary" id="add-job-btn" disabled>
+              <span>➕</span> Add Job
+            </button>
+          </header>
+
+          <div class="content-area">
+            <div id="jobs-list" class="cards-grid"></div>
+
+            <div id="jobs-empty" class="empty-state" style="display: none">
+              <div class="empty-icon">⚙️</div>
+              <h3>No Jobs Configured</h3>
+              <p>
+                Create sync jobs to automatically transfer data to Google
+                Sheets, webhooks, or APIs
+              </p>
+              <button
+                class="btn btn-primary"
+                onclick="document.getElementById('add-job-btn').click()"
+                id="add-job-empty-btn"
+                disabled
+              >
+                Add Job
+              </button>
+            </div>
+
+            <div
+              id="jobs-no-connections"
+              class="empty-state"
+              style="display: none"
+            >
+              <div class="empty-icon">⚠️</div>
+              <h3>No Connections Available</h3>
+              <p>
+                Please add at least one SQL Server connection before creating
+                jobs
+              </p>
+              <button
+                class="btn btn-primary"
+                onclick="document.querySelector('[data-page=connections]').click()"
+              >
+                Go to Connections
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Logs Page -->
+        <section class="page" id="logs-page">
+          <header class="page-header">
+            <div>
+              <h2 class="page-title">Activity Logs</h2>
+              <p class="page-subtitle">
+                Monitor system events and job execution
+              </p>
+            </div>
+            <div class="header-actions">
+              <button class="btn btn-secondary" id="refresh-logs-btn">
+                <img
+                  src="../icon/refresh-ccw.svg"
+                  style="
+                    width: 16px;
+                    height: 16px;
+                    vertical-align: middle;
+                    margin-right: 4px;
+                  "
+                />
+                Refresh
+              </button>
+              <button class="btn btn-danger-outline" id="clear-logs-btn">
+                <img
+                  src="../icon/trash-2.svg"
+                  style="
+                    width: 16px;
+                    height: 16px;
+                    vertical-align: middle;
+                    margin-right: 4px;
+                  "
+                />
+                Clear
+              </button>
+            </div>
+          </header>
+
+          <div class="content-area">
+            <div id="logs-container" class="logs-viewer"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <!-- Connection Modal -->
+    <!-- Native HTML5 Dialog - No freeze issues! -->
+    <dialog id="connection-modal" class="native-dialog">
+      <div class="dialog-header">
+        <h3 id="connection-modal-title">Add Connection</h3>
+        <button
+          type="button"
+          class="dialog-close"
+          onclick="document.getElementById('connection-modal').close()"
+        >
+          &times;
+        </button>
+      </div>
+      <form id="connection-form" method="dialog">
+        <div class="dialog-body">
+          <div class="form-group">
+            <label>Connection Name *</label>
+            <input
+              type="text"
+              id="conn-name"
+              required
+              placeholder="My SQL Server"
+            />
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Server *</label>
+              <input
+                type="text"
+                id="conn-server"
+                required
+                placeholder="localhost or localhost:1433"
+              />
+              <small
+                >Include port if not using default 1433 (e.g.,
+                localhost:8000)</small
+              >
+            </div>
+            <div class="form-group">
+              <label>Database *</label>
+              <input
+                type="text"
+                id="conn-database"
+                required
+                placeholder="MyDatabase"
+              />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label>Username</label>
+              <input
+                type="text"
+                id="conn-user"
+                placeholder="sa (optional for Windows Auth)"
+              />
+            </div>
+            <div class="form-group">
+              <label>Password</label>
+              <input
+                type="password"
+                id="conn-password"
+                placeholder="Optional"
+              />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="conn-trust-cert" checked />
+              <span>Trust Server Certificate</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="dialog-footer">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            onclick="document.getElementById('connection-modal').close()"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            id="test-connection-btn-modal"
+          >
+            🔌 Test Connection
+          </button>
+          <button type="submit" class="btn btn-success">💾 Save</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Job Modal (Native Dialog) -->
+    <!-- Native HTML5 Dialog for Jobs - Large size -->
+    <dialog id="job-modal" class="native-dialog native-dialog-large">
+      <div class="dialog-header">
+        <h3 id="job-modal-title">Create New Job</h3>
+        <button
+          type="button"
+          class="dialog-close"
+          onclick="document.getElementById('job-modal').close()"
+        >
+          &times;
+        </button>
+      </div>
+      <form id="job-form" method="dialog">
+        <div class="dialog-body">
+          <div class="form-section">
+            <h4>Basic Information</h4>
+            <div class="form-group">
+              <label>Job Name *</label>
+              <input
+                type="text"
+                id="job-name"
+                required
+                placeholder="Sales Data Sync"
+              />
+            </div>
+            <div class="form-group">
+              <label>Connection *</label>
+              <select id="job-connection" required>
+                <option value="">-- Select Connection --</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <h4>SQL Query</h4>
+            <div class="form-group">
+              <label>Query *</label>
+              <textarea
+                id="job-query"
+                rows="5"
+                required
+                placeholder="SELECT * FROM TableName"
+              ></textarea>
+              <small
+                >💡 Tip: Use WHERE clauses to filter data efficiently</small
+              >
+            </div>
+          </div>
+
+          <div class="form-section">
+            <h4>Schedule & Trigger</h4>
+            <div class="form-row">
+              <div class="form-group">
+                <label>Schedule *</label>
+                <select id="job-schedule-preset">
+                  <option value="manual">Manual (Run on demand only)</option>
+                  <option value="">Custom (cron)</option>
+                  <option value="*/1 * * * *">Every 1 minute</option>
+                  <option value="*/2 * * * *" selected>Every 2 minutes</option>
+                  <option value="*/5 * * * *">Every 5 minutes</option>
+                  <option value="*/10 * * * *">Every 10 minutes</option>
+                  <option value="*/30 * * * *">Every 30 minutes</option>
+                  <option value="0 * * * *">Every hour</option>
+                </select>
+                <input
+                  type="text"
+                  id="job-schedule"
+                  required
+                  placeholder="*/2 * * * *"
+                  style="margin-top: 8px"
+                  value="*/2 * * * *"
+                />
+                <small>Cron expression or use preset above</small>
+              </div>
+              <div class="form-group">
+                <label>Trigger</label>
+                <select id="job-trigger">
+                  <option value="always">Always (every run)</option>
+                  <option value="onChange">On Change (data changed)</option>
+                </select>
+                <small
+                  >onChange only sends when data differs from last run</small
+                >
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section">
+            <h4>Destinations</h4>
+            <div id="destinations-container"></div>
+            <div
+              style="
+                margin-top: 12px;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+              "
+            >
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                id="add-destination-btn"
+              >
+                ➕ Add Destination
+              </button>
+              <div
+                class="form-actions"
+                style="margin-top: 20px; display: flex; gap: 12px"
+              >
+                <button
+                  type="button"
+                  class="btn btn-secondary"
+                  onclick="document.getElementById('job-modal').close()"
+                >
+                  Cancel
+                </button>
+                <button type="submit" class="btn btn-success">
+                  💾 Create Job
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>
