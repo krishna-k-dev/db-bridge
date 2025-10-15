@@ -579,4 +579,5 @@ Naye adapters ya features add karne ke liye:
 **Happy Syncing! 🚀**
 
 Agar koi problem ho ya question ho, to logs check karo ya issue open karo!
+
 # db-bridge

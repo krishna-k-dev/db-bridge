@@ -48,6 +48,7 @@ SQL Bridge can automatically sync your SQL Server data to Google Sheets in real-
 3. Select **"Service Account"**
 
 **Fill the form:**
+
 - **Service account name:** `sql-bridge-sync`
 - **Service account ID:** (auto-generated)
 - **Description:** `SQL Bridge data synchronization`
@@ -71,6 +72,7 @@ SQL Bridge can automatically sync your SQL Server data to Google Sheets in real-
 8. Save it securely (you'll need it in next steps)
 
 **JSON file will look like this:**
+
 ```json
 {
   "type": "service_account",
@@ -112,6 +114,7 @@ SQL Bridge can automatically sync your SQL Server data to Google Sheets in real-
 ### **Step 7: Get Spreadsheet ID**
 
 1. Look at your Google Sheet URL:
+
 ```
 https://docs.google.com/spreadsheets/d/1ABC...XYZ/edit
                                           ^^^^^^^^
@@ -126,24 +129,28 @@ https://docs.google.com/spreadsheets/d/1ABC...XYZ/edit
 ### **Step 8: Configure in SQL Bridge**
 
 #### **8.1 Open SQL Bridge App**
+
 - Run `SQL Bridge.exe`
 
 #### **8.2 Create or Select Connection**
+
 - If already have connection, skip to next step
 - Otherwise, create new SQL Server connection
 
 #### **8.3 Create New Job**
+
 1. Go to **"Jobs"** page
 2. Click **"Add Job"**
 
 **Fill Job Details:**
+
 - **Job Name:** `Sync to Google Sheets`
 - **Connection:** Select your SQL connection
 - **Query:** Enter your SQL query
   ```sql
   SELECT TOP 100 * FROM YourTable
   ```
-- **Schedule:** 
+- **Schedule:**
   - `Manual` (for testing)
   - Or `Every 5 minutes` (for auto-sync)
 - **Trigger:** `Always (every run)`
@@ -155,20 +162,24 @@ https://docs.google.com/spreadsheets/d/1ABC...XYZ/edit
 
 **Fill Destination Config:**
 
-- **Spreadsheet ID:** 
+- **Spreadsheet ID:**
+
   - Paste the ID from Step 7
   - Example: `1ABCxyz123_DEFuvw456`
 
-- **Sheet Name:** 
+- **Sheet Name:**
+
   - Enter: `Sheet1`
   - (or your custom sheet name)
 
 - **Mode:** Select based on need:
+
   - `Append (add new rows)` - Adds data at bottom
   - `Replace (clear and write)` - Replaces all data
   - `Update (by key column)` - Updates matching rows
 
 - **Key Column (for update mode only):**
+
   - Enter column name: `id` or `student_id`
   - Used to match and update existing rows
 
@@ -186,6 +197,7 @@ https://docs.google.com/spreadsheets/d/1ABC...XYZ/edit
 ### **Step 9: Test the Connection**
 
 #### **Test Query First:**
+
 1. In your job card, click **"Test"** button
 2. Check logs for:
    ```
@@ -193,6 +205,7 @@ https://docs.google.com/spreadsheets/d/1ABC...XYZ/edit
    ```
 
 #### **Run Full Sync:**
+
 1. Click **"Run"** button on job card
 2. Wait for execution (5-10 seconds)
 3. Check logs for success:
@@ -202,6 +215,7 @@ https://docs.google.com/spreadsheets/d/1ABC...XYZ/edit
    ```
 
 #### **Verify in Google Sheets:**
+
 1. Go to your Google Sheet
 2. Refresh page (F5)
 3. Data should appear! 🎉
@@ -211,16 +225,19 @@ https://docs.google.com/spreadsheets/d/1ABC...XYZ/edit
 ## 🎨 Different Sync Modes Explained
 
 ### **Append Mode (Recommended for logs/events)**
+
 - Adds new rows at the bottom
 - Previous data stays intact
 - Good for: Transaction logs, event tracking
 
 ### **Replace Mode (Clean slate)**
+
 - Clears entire sheet first
 - Then writes new data
 - Good for: Dashboard data, current status
 
 ### **Update Mode (Smart sync)**
+
 - Updates matching rows (by key column)
 - Adds new rows if not found
 - Good for: Master data, inventory, user lists
@@ -230,16 +247,19 @@ https://docs.google.com/spreadsheets/d/1ABC...XYZ/edit
 ## 🔄 Scheduling Options
 
 ### **Manual Mode**
+
 - Run only when you click "Run" button
 - Good for: Testing, on-demand reports
 
 ### **Auto Schedule**
+
 - `Every 1 minute` - Real-time sync
 - `Every 5 minutes` - Frequent updates
 - `Every 30 minutes` - Regular updates
 - `Every hour` - Periodic sync
 
 ### **Trigger Options**
+
 - `Always` - Runs every time
 - `On Change` - Only if data changed (saves API quota)
 
@@ -248,9 +268,11 @@ https://docs.google.com/spreadsheets/d/1ABC...XYZ/edit
 ## ❌ Common Issues & Solutions
 
 ### **Error: "Invalid credentials"**
+
 **Cause:** JSON not properly pasted or corrupted
 
 **Solution:**
+
 1. Open JSON file in Notepad
 2. Copy entire content (Ctrl+A, Ctrl+C)
 3. Paste again in SQL Bridge
@@ -259,9 +281,11 @@ https://docs.google.com/spreadsheets/d/1ABC...XYZ/edit
 ---
 
 ### **Error: "Spreadsheet not found"**
+
 **Cause:** Sheet not shared with service account
 
 **Solution:**
+
 1. Open Google Sheet
 2. Click "Share"
 3. Add service account email (from JSON's `client_email`)
@@ -270,9 +294,11 @@ https://docs.google.com/spreadsheets/d/1ABC...XYZ/edit
 ---
 
 ### **Error: "Sheet not found"**
+
 **Cause:** Wrong sheet name (case-sensitive!)
 
 **Solution:**
+
 1. Check exact sheet name in Google Sheets
 2. Default is `Sheet1` (capital S)
 3. Update in SQL Bridge destination config
@@ -280,9 +306,11 @@ https://docs.google.com/spreadsheets/d/1ABC...XYZ/edit
 ---
 
 ### **Error: "Access denied" or "Permission denied"**
+
 **Cause:** Service account doesn't have Editor access
 
 **Solution:**
+
 1. In Google Sheet → "Share"
 2. Find service account email
 3. Change access level to "Editor"
@@ -291,9 +319,11 @@ https://docs.google.com/spreadsheets/d/1ABC...XYZ/edit
 ---
 
 ### **No data appearing but no errors**
+
 **Cause:** Sheet needs refresh or wrong sheet name
 
 **Solution:**
+
 1. Refresh Google Sheet (F5)
 2. Check if sheet name matches exactly
 3. Verify query returns data (use "Test" button)
@@ -303,9 +333,10 @@ https://docs.google.com/spreadsheets/d/1ABC...XYZ/edit
 ## 📊 Example Use Cases
 
 ### **Use Case 1: Daily Sales Report**
+
 ```sql
 -- Query
-SELECT 
+SELECT
     CAST(sale_date AS DATE) as Date,
     product_name as Product,
     SUM(quantity) as Units_Sold,
@@ -315,6 +346,7 @@ WHERE sale_date >= DATEADD(day, -30, GETDATE())
 GROUP BY CAST(sale_date AS DATE), product_name
 ORDER BY sale_date DESC
 ```
+
 - **Mode:** Replace
 - **Schedule:** Every day at 9 AM
 - **Sheet:** `Daily Sales`
@@ -322,20 +354,22 @@ ORDER BY sale_date DESC
 ---
 
 ### **Use Case 2: Live Inventory Tracking**
+
 ```sql
 -- Query
-SELECT 
+SELECT
     product_id as ID,
     product_name as Product,
     current_stock as Stock,
     reorder_level as Reorder_At,
-    CASE 
+    CASE
         WHEN current_stock < reorder_level THEN 'Low Stock'
         ELSE 'OK'
     END as Status
 FROM inventory
 ORDER BY current_stock ASC
 ```
+
 - **Mode:** Replace
 - **Schedule:** Every 5 minutes
 - **Sheet:** `Inventory Status`
@@ -343,9 +377,10 @@ ORDER BY current_stock ASC
 ---
 
 ### **Use Case 3: Student Records Sync**
+
 ```sql
 -- Query
-SELECT 
+SELECT
     student_id as ID,
     first_name as First_Name,
     last_name as Last_Name,
@@ -356,6 +391,7 @@ FROM students
 WHERE active = 1
 ORDER BY last_name
 ```
+
 - **Mode:** Update (by ID)
 - **Key Column:** `ID`
 - **Schedule:** Every 30 minutes
@@ -366,6 +402,7 @@ ORDER BY last_name
 ## 🔐 Security Best Practices
 
 ### **✅ DO:**
+
 - Keep JSON key file secure
 - Use unique service account per application
 - Grant only "Editor" access (not "Owner")
@@ -373,6 +410,7 @@ ORDER BY last_name
 - Rotate keys periodically (every 90 days)
 
 ### **❌ DON'T:**
+
 - Share JSON key file publicly
 - Commit JSON to Git repositories
 - Use same service account for multiple apps
@@ -383,10 +421,12 @@ ORDER BY last_name
 ## 📈 API Quota Information
 
 **Google Sheets API Limits (Free Tier):**
+
 - **Read requests:** 300 per minute per user
 - **Write requests:** 300 per minute per user
 
 **Tips to stay within limits:**
+
 - Use "On Change" trigger (saves quota)
 - Batch operations when possible
 - Avoid syncing every minute for large datasets
@@ -396,6 +436,7 @@ ORDER BY last_name
 ## 🆘 Need Help?
 
 **Check Logs:**
+
 - SQL Bridge → "Logs" page
 - Look for error messages
 - Recent logs appear at top
@@ -403,12 +444,14 @@ ORDER BY last_name
 **Common Log Messages:**
 
 ✅ **Success:**
+
 ```
 [INFO] Google Sheets adapter sent 100 rows successfully
 [INFO] Job completed successfully
 ```
 
 ❌ **Errors:**
+
 ```
 [ERROR] Invalid credentials
 [ERROR] Spreadsheet not found
@@ -420,6 +463,7 @@ ORDER BY last_name
 ## 📞 Support
 
 If you encounter issues:
+
 1. Check logs in SQL Bridge
 2. Verify all steps in this guide
 3. Ensure Google Sheet is shared with service account
@@ -447,6 +491,7 @@ Before running your first sync, verify:
 ## 🎉 Success!
 
 If everything works, you should see:
+
 1. ✅ Green success message in logs
 2. ✅ Data appearing in Google Sheet
 3. ✅ Auto-sync working on schedule
@@ -455,5 +500,5 @@ If everything works, you should see:
 
 ---
 
-*Last Updated: October 15, 2025*
-*SQL Bridge - Data Sync Automation*
+_Last Updated: October 15, 2025_
+_SQL Bridge - Data Sync Automation_
