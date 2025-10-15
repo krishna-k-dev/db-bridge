@@ -1,12 +1,15 @@
 import * as fs from "fs";
 import * as path from "path";
+import { app } from "electron";
 import { LogEntry } from "../types";
 
 class Logger {
   private logFilePath: string;
 
   constructor() {
-    const logsDir = path.join(__dirname, "../../logs");
+    // Use app.getPath('userData') for packaged app
+    const userDataPath = app.getPath("userData");
+    const logsDir = path.join(userDataPath, "logs");
     if (!fs.existsSync(logsDir)) {
       fs.mkdirSync(logsDir, { recursive: true });
     }

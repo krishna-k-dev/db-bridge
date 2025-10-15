@@ -659,10 +659,11 @@ function updateDestinationConfig(destItem, type, existingConfig = null) {
         }">
       </div>
       <div class="form-group">
-        <label>Credentials Path *</label>
-        <input type="text" class="dest-credentials-path" required value="${
-          existingConfig?.credentialsPath || "./config/google-credentials.json"
-        }">
+        <label>Google Service Account Credentials (JSON) *</label>
+        <textarea class="dest-credentials-json" rows="6" required placeholder='Paste your complete service account JSON here...'>${
+          existingConfig?.credentialsJson || ""
+        }</textarea>
+        <small>From URL: docs.google.com/spreadsheets/d/<strong>SPREADSHEET_ID</strong>/edit</small>
       </div>
     `;
   } else if (type === "custom_api") {
@@ -787,7 +788,26 @@ function getDestinations() {
       dest.mode = item.querySelector(".dest-mode").value;
       dest.keyColumn =
         item.querySelector(".dest-key-column").value || undefined;
-      dest.credentialsPath = item.querySelector(".dest-credentials-path").value;
+
+      // Get credentials JSON from textarea
+      const credentialsJson = item.querySelector(
+        ".dest-credentials-json"
+      ).value;
+      if (!credentialsJson) {
+        alert("Please paste your Google Service Account credentials JSON");
+        return;
+      }
+
+      try {
+        // Validate JSON
+        const credentials = JSON.parse(credentialsJson);
+        dest.credentialsJson = credentialsJson;
+      } catch (e) {
+        alert(
+          "Invalid JSON in Google credentials. Please check and paste complete JSON."
+        );
+        return;
+      }
     } else if (type === "custom_api") {
       dest.url = item.querySelector(".dest-url").value;
       dest.method = item.querySelector(".dest-method").value;

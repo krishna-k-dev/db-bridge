@@ -17,10 +17,21 @@ export class GoogleSheetsAdapter implements DestinationAdapter {
     meta: JobMeta
   ): Promise<SendResult> {
     try {
-      // Load service account credentials
-      const credentials = JSON.parse(
-        fs.readFileSync(config.credentialsPath, "utf-8")
-      );
+      // Parse credentials from JSON string (directly from textarea)
+      let credentials;
+      if (config.credentialsJson) {
+        // New way: credentials stored as JSON string
+        credentials = JSON.parse(config.credentialsJson);
+      } else if (config.credentialsPath) {
+        // Old way: credentials from file path (for backward compatibility)
+        credentials = JSON.parse(
+          fs.readFileSync(config.credentialsPath, "utf-8")
+        );
+      } else {
+        throw new Error(
+          "No credentials provided. Please paste your Google Service Account JSON."
+        );
+      }
 
       const auth = new google.auth.GoogleAuth({
         credentials,

@@ -8,7 +8,9 @@
     "start": "npm run build && electron .",
     "dev": "tsc && electron .",
     "watch": "tsc --watch",
-    "package": "electron-builder"
+    "build-icon": "node build-icon.js",
+    "package": "npm run build && npm run build-icon && electron-builder --win --x64",
+    "dist": "npm run build && electron-packager . \"SQL Bridge\" --platform=win32 --arch=x64 --out=distributable --overwrite --prune=true --icon=build/icon.ico"
   },
   "keywords": [
     "sql",
@@ -23,7 +25,10 @@
     "@types/node": "^20.19.21",
     "@types/node-cron": "^3.0.11",
     "electron": "^38.2.2",
-    "electron-builder": "^24.9.1",
+    "electron-builder": "^24.13.3",
+    "electron-packager": "^17.1.2",
+    "icon-gen": "^5.0.0",
+    "png-to-ico": "^3.0.1",
     "typescript": "^5.3.3"
   },
   "dependencies": {
@@ -42,11 +47,23 @@
     },
     "files": [
       "dist/**/*",
-      "config/**/*",
-      "src/renderer/**/*"
+      "src/renderer/**/*",
+      "src/icon/**/*",
+      "!src/**/*.ts",
+      "!*.md",
+      "!.gitignore"
+    ],
+    "extraResources": [
+      {
+        "from": "config",
+        "to": "config",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "win": {
-      "target": "nsis",
+      "target": "dir",
       "icon": "build/icon.ico"
     }
   }

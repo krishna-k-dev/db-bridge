@@ -49,7 +49,8 @@ export interface GoogleSheetsDestination extends Destination {
   sheetName: string;
   mode: "append" | "replace" | "update";
   keyColumn?: string; // for update mode
-  credentialsPath: string;
+  credentialsPath?: string; // deprecated - for backward compatibility
+  credentialsJson?: string; // new - JSON string directly pasted
 }
 
 export interface CustomAPIDestination extends Destination {

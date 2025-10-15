@@ -1,6 +1,7 @@
 import * as cron from "node-cron";
 import * as fs from "fs";
 import * as path from "path";
+import { app } from "electron";
 import { Job, SQLConnection, AppConfig } from "../types";
 import { JobExecutor } from "./executor";
 import { logger } from "./logger";
@@ -14,12 +15,20 @@ export class JobScheduler {
 
   constructor(configPath?: string) {
     this.executor = new JobExecutor();
+    // Use app.getPath('userData') for packaged app
+    const userDataPath = app.getPath("userData");
     this.configPath =
-      configPath || path.join(__dirname, "../../config/config.json");
+      configPath || path.join(userDataPath, "config", "config.json");
   }
 
   loadConfig(): void {
     try {
+      // Ensure config directory exists
+      const configDir = path.dirname(this.configPath);
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true });
+      }
+
       if (!fs.existsSync(this.configPath)) {
         logger.warn("Config file not found, creating empty config");
         this.saveConfig();
