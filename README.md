@@ -80,24 +80,21 @@ Ensure your SQL Server is running and accessible. Note down:
 
 ## 📊 Google Sheets Setup
 
-### Step 1: Create Service Account
+**📖 Complete Step-by-Step Guide:** [GOOGLE_SHEETS_SETUP.md](GOOGLE_SHEETS_SETUP.md)
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project (or select existing)
-3. Enable **Google Sheets API**:
-   - Navigate to **APIs & Services > Library**
-   - Search "Google Sheets API" and enable it
-4. Create Service Account:
-   - Go to **APIs & Services > Credentials**
-   - Click **Create Credentials > Service Account**
-   - Fill in name and click **Create**
-   - Skip optional steps, click **Done**
-5. Generate Key:
-   - Click on your new service account
-   - Go to **Keys** tab
-   - Click **Add Key > Create New Key**
-   - Choose **JSON** format
-   - Download the file
+### Quick Summary:
+
+1. **Create Google Cloud Project** → Enable Google Sheets API
+2. **Create Service Account** → Download JSON key
+3. **Create Google Sheet** → Share with service account email
+4. **In SQL Bridge:**
+   - Add Google Sheets destination
+   - Paste complete JSON credentials
+   - Enter Spreadsheet ID and Sheet name
+   - Select sync mode (Append/Replace/Update)
+5. **Run & Verify** → Data syncs automatically!
+
+**Need detailed instructions?** See full guide: [GOOGLE_SHEETS_SETUP.md](GOOGLE_SHEETS_SETUP.md)
 
 ### Step 2: Configure Credentials
 
