@@ -11,6 +11,150 @@ import { logger } from "../core/logger";
 export class GoogleSheetsAdapter implements DestinationAdapter {
   name = "google_sheets";
 
+  // Multi-connection support: Create multiple sheets in one spreadsheet
+  async sendMultiConnection(
+    dataWithMeta: Array<{ connection: any; data: any[] }>,
+    config: GoogleSheetsDestination,
+    meta: { jobId: string; jobName: string; runTime: Date }
+  ): Promise<SendResult> {
+    try {
+      // Parse credentials
+      let credentials;
+      if (config.credentialsJson) {
+        credentials = JSON.parse(config.credentialsJson);
+      } else if (config.credentialsPath) {
+        credentials = JSON.parse(
+          fs.readFileSync(config.credentialsPath, "utf-8")
+        );
+      } else {
+        throw new Error(
+          "No credentials provided. Please paste your Google Service Account JSON."
+        );
+      }
+
+      const auth = new google.auth.GoogleAuth({
+        credentials,
+        scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+      });
+
+      const sheets = google.sheets({ version: "v4", auth });
+
+      let totalRows = 0;
+
+      // Create/update a sheet for each connection
+      for (const { connection, data } of dataWithMeta) {
+        const sheetName = connection.name;
+        const headers = data.length > 0 ? Object.keys(data[0]) : [];
+        const values = data.map((row: any) =>
+          headers.map((header) => row[header] ?? "")
+        );
+
+        // Ensure sheet exists
+        await this.ensureSheetExists(sheets, config.spreadsheetId, sheetName);
+
+        // Write data based on mode
+        switch (config.mode) {
+          case "append":
+            await this.appendData(
+              sheets,
+              { ...config, sheetName },
+              headers,
+              values,
+              {
+                jobId: meta.jobId,
+                jobName: meta.jobName,
+                runTime: meta.runTime,
+                rowCount: data.length,
+              } as JobMeta
+            );
+            break;
+          case "replace":
+            await this.replaceData(
+              sheets,
+              { ...config, sheetName },
+              headers,
+              values,
+              {
+                jobId: meta.jobId,
+                jobName: meta.jobName,
+                runTime: meta.runTime,
+                rowCount: data.length,
+              } as JobMeta
+            );
+            break;
+          case "update":
+            await this.updateData(sheets, { ...config, sheetName }, data, {
+              jobId: meta.jobId,
+              jobName: meta.jobName,
+              runTime: meta.runTime,
+              rowCount: data.length,
+            } as JobMeta);
+            break;
+          default:
+            throw new Error(`Unknown mode: ${config.mode}`);
+        }
+
+        totalRows += data.length;
+      }
+
+      return {
+        success: true,
+        message: `Successfully created/updated ${dataWithMeta.length} sheets with ${totalRows} total rows in Google Sheets`,
+      };
+    } catch (error: any) {
+      logger.error(
+        "Google Sheets multi-connection operation failed",
+        meta.jobId,
+        error.message
+      );
+      return {
+        success: false,
+        message: error.message,
+        error,
+      };
+    }
+  }
+
+  // Ensure a sheet exists in the spreadsheet
+  private async ensureSheetExists(
+    sheets: any,
+    spreadsheetId: string,
+    sheetName: string
+  ): Promise<void> {
+    try {
+      // Get spreadsheet metadata
+      const response = await sheets.spreadsheets.get({ spreadsheetId });
+      const existingSheets = response.data.sheets || [];
+
+      // Check if sheet exists
+      const sheetExists = existingSheets.some(
+        (sheet: any) => sheet.properties.title === sheetName
+      );
+
+      if (!sheetExists) {
+        // Create new sheet
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId,
+          requestBody: {
+            requests: [
+              {
+                addSheet: {
+                  properties: {
+                    title: sheetName,
+                  },
+                },
+              },
+            ],
+          },
+        });
+        logger.info(`Created new sheet: ${sheetName}`);
+      }
+    } catch (error: any) {
+      logger.error(`Failed to ensure sheet exists: ${error.message}`);
+      throw error;
+    }
+  }
+
   async send(
     data: any[],
     config: GoogleSheetsDestination,

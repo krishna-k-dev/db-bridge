@@ -80,19 +80,70 @@
               <p class="page-subtitle">Manage your database connections</p>
             </div>
             <button class="btn btn-primary" id="add-connection-btn">
-              <span>➕</span> Add Connection
+              <img
+                src="../icon/plus.svg"
+                style="
+                  width: 16px;
+                  height: 16px;
+                  vertical-align: middle;
+                  margin-right: 6px;
+                "
+              />
+              Add Connection
             </button>
           </header>
 
           <div class="content-area">
-            <div id="connections-list" class="cards-grid"></div>
+            <div class="table-controls">
+              <div class="table-search">
+                <input
+                  type="text"
+                  id="connections-search"
+                  placeholder="Search connections..."
+                  class="search-input"
+                />
+                <img src="../icon/search.svg" class="search-icon" />
+              </div>
+            </div>
+            <div id="connections-list" class="data-table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Server</th>
+                    <th>Database</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="connections-tbody">
+                  <!-- Connection rows will be inserted here -->
+                </tbody>
+              </table>
+            </div>
+            <div class="table-pagination" id="connections-pagination">
+              <button class="pagination-btn" id="connections-prev" disabled>
+                &larr; Previous
+              </button>
+              <span class="pagination-info" id="connections-info"
+                >Page 1 of 1</span
+              >
+              <button class="pagination-btn" id="connections-next" disabled>
+                Next &rarr;
+              </button>
+            </div>
 
             <div
               id="connections-empty"
               class="empty-state"
               style="display: none"
             >
-              <div class="empty-icon">🔌</div>
+              <div class="empty-icon">
+                <img
+                  src="../icon/cable.svg"
+                  style="width: 48px; height: 48px; opacity: 0.5"
+                />
+              </div>
               <h3>No Connections Yet</h3>
               <p>
                 Start by adding your first SQL Server connection to begin
@@ -116,15 +167,65 @@
               <p class="page-subtitle">Automated data synchronization tasks</p>
             </div>
             <button class="btn btn-primary" id="add-job-btn" disabled>
-              <span>➕</span> Add Job
+              <img
+                src="../icon/plus.svg"
+                style="
+                  width: 16px;
+                  height: 16px;
+                  vertical-align: middle;
+                  margin-right: 6px;
+                "
+              />
+              Add Job
             </button>
           </header>
 
           <div class="content-area">
-            <div id="jobs-list" class="cards-grid"></div>
+            <div class="table-controls">
+              <div class="table-search">
+                <input
+                  type="text"
+                  id="jobs-search"
+                  placeholder="Search jobs..."
+                  class="search-input"
+                />
+                <img src="../icon/search.svg" class="search-icon" />
+              </div>
+            </div>
+            <div id="jobs-list" class="data-table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Connection</th>
+                    <th>Schedule</th>
+                    <th>Status</th>
+                    <th>Destinations</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="jobs-tbody">
+                  <!-- Job rows will be inserted here -->
+                </tbody>
+              </table>
+            </div>
+            <div class="table-pagination" id="jobs-pagination">
+              <button class="pagination-btn" id="jobs-prev" disabled>
+                &larr; Previous
+              </button>
+              <span class="pagination-info" id="jobs-info">Page 1 of 1</span>
+              <button class="pagination-btn" id="jobs-next" disabled>
+                Next &rarr;
+              </button>
+            </div>
 
             <div id="jobs-empty" class="empty-state" style="display: none">
-              <div class="empty-icon">⚙️</div>
+              <div class="empty-icon">
+                <img
+                  src="../icon/settings.svg"
+                  style="width: 48px; height: 48px; opacity: 0.5"
+                />
+              </div>
               <h3>No Jobs Configured</h3>
               <p>
                 Create sync jobs to automatically transfer data to Google
@@ -145,7 +246,12 @@
               class="empty-state"
               style="display: none"
             >
-              <div class="empty-icon">⚠️</div>
+              <div class="empty-icon">
+                <img
+                  src="../icon/clipboard-clock.svg"
+                  style="width: 48px; height: 48px; opacity: 0.5"
+                />
+              </div>
               <h3>No Connections Available</h3>
               <p>
                 Please add at least one SQL Server connection before creating
@@ -295,9 +401,29 @@
             class="btn btn-primary"
             id="test-connection-btn-modal"
           >
-            🔌 Test Connection
+            <img
+              src="../icon/refresh-ccw.svg"
+              style="
+                width: 16px;
+                height: 16px;
+                vertical-align: middle;
+                margin-right: 6px;
+              "
+            />
+            Test Connection
           </button>
-          <button type="submit" class="btn btn-success">💾 Save</button>
+          <button type="submit" class="btn btn-success">
+            <img
+              src="../icon/pencil.svg"
+              style="
+                width: 16px;
+                height: 16px;
+                vertical-align: middle;
+                margin-right: 6px;
+              "
+            />
+            Save
+          </button>
         </div>
       </form>
     </dialog>
@@ -329,10 +455,22 @@
               />
             </div>
             <div class="form-group">
-              <label>Connection *</label>
-              <select id="job-connection" required>
-                <option value="">-- Select Connection --</option>
-              </select>
+              <label
+                >Connections *
+                <span class="selected-count" id="selected-count"
+                  >(0 selected)</span
+                ></label
+              >
+              <div
+                class="connections-checkbox-container"
+                id="connections-checkbox-container"
+              >
+                <!-- Checkboxes will be populated by JavaScript -->
+              </div>
+              <small
+                >Select one or more connections to run this job in
+                parallel</small
+              >
             </div>
           </div>
 
@@ -406,7 +544,16 @@
                 class="btn btn-secondary btn-sm"
                 id="add-destination-btn"
               >
-                ➕ Add Destination
+                <img
+                  src="../icon/plus.svg"
+                  style="
+                    width: 14px;
+                    height: 14px;
+                    vertical-align: middle;
+                    margin-right: 4px;
+                  "
+                />
+                Add Destination
               </button>
               <div style="margin-top: 20px; display: flex; gap: 12px">
                 <button
@@ -417,7 +564,16 @@
                   Cancel
                 </button>
                 <button type="submit" class="btn btn-success">
-                  💾 Create Job
+                  <img
+                    src="../icon/pencil.svg"
+                    style="
+                      width: 16px;
+                      height: 16px;
+                      vertical-align: middle;
+                      margin-right: 6px;
+                    "
+                  />
+                  Create Job
                 </button>
               </div>
             </div>

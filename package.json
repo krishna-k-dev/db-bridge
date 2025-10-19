@@ -1,12 +1,12 @@
 {
   "name": "sql-bridge-app",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Desktop app to bridge local SQL Server data to any destination (webhooks, Google Sheets, APIs)",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
     "start": "npm run build && electron .",
-    "dev": "tsc && electron .",
+    "dev": "tsc && electronmon .",
     "watch": "tsc --watch",
     "build-icon": "node build-icon.js",
     "package": "npm run build && npm run build-icon && electron-builder --win --x64",
@@ -27,6 +27,7 @@
     "electron": "^38.2.2",
     "electron-builder": "^24.13.3",
     "electron-packager": "^17.1.2",
+    "electronmon": "^2.0.3",
     "icon-gen": "^5.0.0",
     "png-to-ico": "^3.0.1",
     "typescript": "^5.3.3"

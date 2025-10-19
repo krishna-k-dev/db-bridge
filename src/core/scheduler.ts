@@ -137,8 +137,22 @@ export class JobScheduler {
 
     const task = cron.schedule(cronExpression, async () => {
       try {
-        const connection = this.getConnection(job.connectionId);
-        await this.executor.executeJob(job, connection);
+        // Handle both single connection (legacy) and multiple connections
+        const connectionIds =
+          job.connectionIds || (job.connectionId ? [job.connectionId] : []);
+
+        // Get all connections
+        const connections = connectionIds
+          .map((id) => this.getConnection(id))
+          .filter(Boolean) as SQLConnection[];
+
+        if (connections.length === 0) {
+          logger.error("No valid connections found for job", job.id);
+          return;
+        }
+
+        // Execute job with multiple connections (smart handling per adapter)
+        await this.executor.executeJobMultiConnection(job, connections);
       } catch (error) {
         // Error already logged in executor
       }
@@ -217,8 +231,30 @@ export class JobScheduler {
       throw new Error(`Job not found: ${jobId}`);
     }
 
-    const connection = this.getConnection(job.connectionId);
-    await this.executor.executeJob(job, connection);
+    // Handle both single connection (legacy) and multiple connections
+    const connectionIds =
+      job.connectionIds || (job.connectionId ? [job.connectionId] : []);
+
+    // Get all connections for this job
+    const connections = connectionIds
+      .map((id) => this.getConnection(id))
+      .filter((conn): conn is any => conn !== undefined);
+
+    if (connections.length === 0) {
+      logger.error("No valid connections found for job", job.id);
+      return;
+    }
+
+    // Use multi-connection execution mode
+    try {
+      await this.executor.executeJobMultiConnection(job, connections);
+    } catch (error) {
+      logger.error(
+        `Failed to execute job in multi-connection mode`,
+        job.id,
+        error as Error
+      );
+    }
   }
 
   async testJob(jobId: string): Promise<any> {
@@ -228,9 +264,18 @@ export class JobScheduler {
       throw new Error(`Job not found: ${jobId}`);
     }
 
+    // For testing, use the first available connection
+    const connectionIds =
+      job.connectionIds || (job.connectionId ? [job.connectionId] : []);
+    const firstConnectionId = connectionIds.find((id) => id);
+
+    if (!firstConnectionId) {
+      throw new Error(`No valid connections found for job: ${job.name}`);
+    }
+
     return await this.executor.testJob(
       job,
-      this.getConnection(job.connectionId)
+      this.getConnection(firstConnectionId)
     );
   }
 

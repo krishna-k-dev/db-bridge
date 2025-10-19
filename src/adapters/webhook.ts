@@ -10,6 +10,59 @@ import { logger } from "../core/logger";
 export class WebhookAdapter implements DestinationAdapter {
   name = "webhook";
 
+  // Multi-connection support: Send combined array with connection info
+  async sendMultiConnection(
+    dataWithMeta: Array<{ connection: any; data: any[] }>,
+    config: WebhookDestination,
+    meta: { jobId: string; jobName: string; runTime: Date }
+  ): Promise<SendResult> {
+    try {
+      const method = config.method || "POST";
+
+      // Combine all data into array format - each connection's data in array
+      const combinedPayload = dataWithMeta.map(({ connection, data }) => ({
+        connectionName: connection.name, // MUST - Connection name
+        connectionId: connection.id, // Optional - Connection ID
+        rowCount: data.length, // Row count for this connection
+        data: data, // Actual data array
+      }));
+
+      await axios({
+        method,
+        url: config.url,
+        data: combinedPayload,
+        headers: config.headers || {},
+        timeout: 30000,
+      });
+
+      const totalRows = dataWithMeta.reduce(
+        (sum, item) => sum + item.data.length,
+        0
+      );
+
+      logger.info(
+        `Webhook sent: ${totalRows} rows from ${dataWithMeta.length} connections`,
+        meta.jobId
+      );
+
+      return {
+        success: true,
+        message: `Sent ${totalRows} rows from ${dataWithMeta.length} connections to ${config.url}`,
+      };
+    } catch (error: any) {
+      logger.error(
+        "Webhook multi-connection send failed",
+        meta.jobId,
+        error.message
+      );
+      return {
+        success: false,
+        message: error.message,
+        error,
+      };
+    }
+  }
+
   async send(
     data: any[],
     config: WebhookDestination,

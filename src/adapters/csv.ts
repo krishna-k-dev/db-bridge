@@ -57,28 +57,45 @@ export class CSVAdapter implements DestinationAdapter {
     config: CSVDestination,
     meta: JobMeta
   ): Promise<SendResult> {
-    const {
+    let {
       filePath,
       mode = "replace",
       delimiter = ",",
       includeHeaders = true,
     } = config;
 
+    // Replace placeholders in filePath
+    filePath = filePath
+      .replace(/{jobId}/g, meta.jobId)
+      .replace(/{jobName}/g, meta.jobName)
+      .replace(/{connectionId}/g, meta.connectionId || "unknown")
+      .replace(/{connectionName}/g, meta.connectionName || "unknown")
+      .replace(
+        /{runTime}/g,
+        meta.runTime.toISOString().slice(0, 19).replace(/:/g, "-")
+      ); // YYYY-MM-DDTHH-MM-SS
+
     try {
-      // Auto-fix: If user provided a directory, add default filename
       let actualFilePath = filePath;
 
-      // Check if path is a directory (exists and is directory, or doesn't end with .csv)
-      if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
-        // It's a directory - add default filename
-        actualFilePath = path.join(filePath, "export_" + Date.now() + ".csv");
-        logger.info(`Directory provided, using filename: ${actualFilePath}`);
-      } else if (!filePath.endsWith(".csv")) {
-        // Path doesn't end with .csv - treat as directory and add filename
-        actualFilePath = path.join(filePath, "export_" + Date.now() + ".csv");
-        logger.info(
-          `No .csv extension, treating as directory: ${actualFilePath}`
-        );
+      // Auto-fix: Add .csv extension if missing
+      if (!actualFilePath.endsWith(".csv")) {
+        // Check if it's a directory path
+        if (
+          fs.existsSync(actualFilePath) &&
+          fs.statSync(actualFilePath).isDirectory()
+        ) {
+          // It's a directory - add filename
+          actualFilePath = path.join(
+            actualFilePath,
+            `${meta.connectionName || "export"}_${Date.now()}.csv`
+          );
+          logger.info(`Directory provided, using filename: ${actualFilePath}`);
+        } else {
+          // It's a file path without extension - add .csv
+          actualFilePath = actualFilePath + ".csv";
+          logger.info(`No .csv extension, added: ${actualFilePath}`);
+        }
       }
 
       // Ensure directory exists

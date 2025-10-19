@@ -446,6 +446,315 @@ body {
   font-size: 13px;
 }
 
+/* Data Tables */
+.data-table-container {
+  background: white;
+  border-radius: 4px;
+  /* box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08); */
+  border: 1px solid var(--gray-200);
+  margin-bottom: 24px;
+  z-index: 1;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  z-index: 10;
+}
+
+.data-table thead {
+  background: var(--gray-50);
+  border-bottom: 2px solid var(--gray-200);
+}
+
+.data-table th {
+  padding: 4px 6px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--gray-700);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.data-table td {
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--gray-100);
+  color: var(--gray-900);
+}
+
+.data-table tbody tr {
+  transition: background 0.2s;
+}
+
+.data-table tbody tr:hover {
+  background: var(--gray-50);
+}
+
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Table cell content */
+.table-title {
+  font-weight: 600;
+  color: var(--gray-900);
+  font-size: 14px;
+}
+
+.table-text {
+  color: var(--gray-600);
+  font-size: 13px;
+}
+
+/* Table Controls */
+.table-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 16px 0;
+}
+
+.table-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-input {
+  padding: 8px 12px 8px 36px;
+  border: 1px solid var(--gray-300);
+  border-radius: 6px;
+  font-size: 14px;
+  width: 250px;
+  transition: border-color 0.2s;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.search-icon {
+  position: absolute;
+  left: 10px;
+  width: 16px;
+  height: 16px;
+  filter: brightness(0) invert(0.5);
+  pointer-events: none;
+}
+
+/* Table Pagination */
+.table-pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 16px 0;
+}
+
+.pagination-btn {
+  padding: 8px 16px;
+  border: 1px solid var(--gray-300);
+  background: white;
+  color: var(--gray-700);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.pagination-btn:hover:not(:disabled) {
+  background: var(--gray-50);
+  border-color: var(--gray-400);
+}
+
+.pagination-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pagination-info {
+  font-size: 14px;
+  color: var(--gray-600);
+  font-weight: 500;
+}
+
+/* Status badges in table */
+.table-status {
+  padding: 2px 6px;
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.table-status.success {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.table-status.danger {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.table-status.warning {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+/* Action buttons and dropdowns */
+.table-actions {
+  position: relative;
+}
+
+.action-btn {
+  background: var(--gray-100);
+  border: 1px solid var(--gray-200);
+  color: var(--gray-700);
+  padding: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+}
+
+.action-btn:hover {
+  background: var(--gray-200);
+  border-color: var(--gray-300);
+}
+
+.action-btn img {
+  width: 16px;
+  height: 16px;
+  filter: brightness(0) invert(0.5);
+}
+
+.action-dropdown {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  background: white;
+  border: 1px solid var(--gray-200);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  min-width: 140px;
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-10px);
+  transition: all 0.2s;
+}
+
+.action-dropdown.show {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.action-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--gray-700);
+  transition: background 0.2s;
+  border-radius: 0;
+}
+
+.action-dropdown-item:hover {
+  background: var(--gray-50);
+}
+
+.action-dropdown-item.danger {
+  color: var(--danger);
+}
+
+.action-dropdown-item.danger:hover {
+  background: #fef2f2;
+}
+
+.action-dropdown-item.success {
+  color: var(--success);
+}
+
+.action-dropdown-item.success:hover {
+  background: #f0fdf4;
+}
+
+.action-dropdown-item.warning {
+  color: var(--warning);
+}
+
+.action-dropdown-item.warning:hover {
+  background: #fffbeb;
+}
+
+/* Connections Checkbox Container */
+.connections-checkbox-container {
+  border: 1px solid var(--gray-300);
+  border-radius: 6px;
+  padding: 12px;
+  background: white;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.connection-checkbox-item {
+  display: flex;
+  align-items: center;
+  padding: 4px;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.connection-checkbox-item:hover {
+  background: var(--gray-50);
+}
+
+.connection-checkbox-item:last-child {
+  margin-bottom: 0;
+}
+
+.connection-checkbox-item input[type="checkbox"] {
+  width: 12px;
+  height: 12px;
+  margin-right: 10px;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.connection-checkbox-item label {
+  flex: 1;
+  cursor: pointer;
+  color: var(--gray-700);
+  margin: 0;
+}
+
+.selected-count {
+  font-size: 12px;
+  color: var(--primary);
+  font-weight: 600;
+  margin-left: 6px;
+}
+
 /* Empty State */
 .empty-state {
   text-align: center;
@@ -788,6 +1097,36 @@ dialog .dialog-body {
 
 .log-line.info {
   color: #93c5fd;
+}
+
+/* Empty State */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.empty-icon {
+  margin-bottom: 20px;
+  opacity: 0.6;
+}
+
+.empty-icon img {
+  display: block;
+  margin: 0 auto;
+}
+
+.empty-state h3 {
+  color: var(--gray-700);
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.empty-state p {
+  color: var(--gray-500);
+  font-size: 14px;
+  max-width: 400px;
+  margin: 0 auto 24px;
 }
 
 /* Scrollbar */

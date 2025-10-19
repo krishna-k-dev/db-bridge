@@ -6,6 +6,14 @@ let jobs = [];
 let currentEditConnection = null;
 let currentEditJob = null;
 
+// Pagination and filtering variables
+let connectionsPage = 1;
+let jobsPage = 1;
+let connectionsPerPage = 10;
+let jobsPerPage = 10;
+let filteredConnections = [];
+let filteredJobs = [];
+
 // ===== TITLE BAR CONTROLS =====
 document.getElementById("minimize-btn").addEventListener("click", () => {
   const window = remote.getCurrentWindow();
@@ -54,9 +62,137 @@ document.querySelectorAll(".nav-item").forEach((nav) => {
   });
 });
 
+// ===== ACTION DROPDOWN HANDLING =====
+function toggleActionDropdown(dropdownId, event) {
+  event.stopPropagation();
+
+  // Close all other dropdowns
+  document.querySelectorAll(".action-dropdown.show").forEach((dropdown) => {
+    if (dropdown.id !== `dropdown-${dropdownId}`) {
+      dropdown.classList.remove("show");
+    }
+  });
+
+  // Toggle the clicked dropdown
+  const dropdown = document.getElementById(`dropdown-${dropdownId}`);
+  dropdown.classList.toggle("show");
+}
+
+// Close dropdowns when clicking outside
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".table-actions")) {
+    document.querySelectorAll(".action-dropdown.show").forEach((dropdown) => {
+      dropdown.classList.remove("show");
+    });
+  }
+});
+
+// ===== CONNECTIONS CHECKBOXES =====
+let selectedConnections = [];
+
+function populateConnectionCheckboxes() {
+  const container = document.getElementById("connections-checkbox-container");
+  const countElement = document.getElementById("selected-count");
+
+  if (!container) return;
+
+  container.innerHTML = "";
+
+  if (connections.length === 0) {
+    container.innerHTML =
+      '<p style="color: var(--gray-500); font-size: 13px; margin: 0;">No connections available</p>';
+    return;
+  }
+
+  connections.forEach((conn) => {
+    const item = document.createElement("div");
+    item.className = "connection-checkbox-item";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.id = `conn-${conn.id}`;
+    checkbox.value = conn.id;
+    checkbox.checked = selectedConnections.includes(conn.id);
+
+    const label = document.createElement("label");
+    label.htmlFor = `conn-${conn.id}`;
+    label.textContent = conn.name;
+
+    checkbox.addEventListener("change", () => {
+      if (checkbox.checked) {
+        if (!selectedConnections.includes(conn.id)) {
+          selectedConnections.push(conn.id);
+        }
+      } else {
+        selectedConnections = selectedConnections.filter(
+          (id) => id !== conn.id
+        );
+      }
+      updateConnectionCount();
+    });
+
+    item.appendChild(checkbox);
+    item.appendChild(label);
+    container.appendChild(item);
+  });
+
+  updateConnectionCount();
+}
+
+function updateConnectionCount() {
+  const countElement = document.getElementById("selected-count");
+  if (countElement) {
+    countElement.textContent = `(${selectedConnections.length} selected)`;
+  }
+}
+
+// ===== SEARCH AND PAGINATION =====
+// Connections search
+document.getElementById("connections-search").addEventListener("input", (e) => {
+  filterConnections(e.target.value);
+});
+
+// Jobs search
+document.getElementById("jobs-search").addEventListener("input", (e) => {
+  filterJobs(e.target.value);
+});
+
+// Pagination buttons
+document.getElementById("connections-prev").addEventListener("click", () => {
+  if (connectionsPage > 1) {
+    connectionsPage--;
+    renderConnectionsPage();
+  }
+});
+
+document.getElementById("connections-next").addEventListener("click", () => {
+  const totalPages = Math.ceil(filteredConnections.length / connectionsPerPage);
+  if (connectionsPage < totalPages) {
+    connectionsPage++;
+    renderConnectionsPage();
+  }
+});
+
+document.getElementById("jobs-prev").addEventListener("click", () => {
+  if (jobsPage > 1) {
+    jobsPage--;
+    renderJobsPage();
+  }
+});
+
+document.getElementById("jobs-next").addEventListener("click", () => {
+  const totalPages = Math.ceil(filteredJobs.length / jobsPerPage);
+  if (jobsPage < totalPages) {
+    jobsPage++;
+    renderJobsPage();
+  }
+});
+
 // ===== CONNECTIONS =====
 async function loadConnections() {
   connections = await ipcRenderer.invoke("get-connections");
+  filteredConnections = [...connections];
+  connectionsPage = 1;
 
   document.getElementById("connections-count").textContent = connections.length;
 
@@ -64,79 +200,109 @@ async function loadConnections() {
   const connectionsEmpty = document.getElementById("connections-empty");
 
   if (connections.length === 0) {
-    connectionsList.innerHTML = "";
+    connectionsList.style.display = "none";
+    document.getElementById("connections-pagination").style.display = "none";
     connectionsEmpty.style.display = "block";
     updateJobButtonState();
     return;
   }
 
   connectionsEmpty.style.display = "none";
+  connectionsList.style.display = "block";
+  document.getElementById("connections-pagination").style.display = "flex";
+  renderConnectionsPage();
+  updateJobButtonState();
+}
 
-  connectionsList.innerHTML = connections
+function filterConnections(searchTerm) {
+  const term = searchTerm.toLowerCase();
+  filteredConnections = connections.filter(
+    (conn) =>
+      conn.name.toLowerCase().includes(term) ||
+      conn.server.toLowerCase().includes(term) ||
+      conn.database.toLowerCase().includes(term)
+  );
+  connectionsPage = 1;
+  renderConnectionsPage();
+}
+
+function renderConnectionsPage() {
+  const tbody = document.getElementById("connections-tbody");
+  const startIndex = (connectionsPage - 1) * connectionsPerPage;
+  const endIndex = startIndex + connectionsPerPage;
+  const pageConnections = filteredConnections.slice(startIndex, endIndex);
+
+  tbody.innerHTML = pageConnections
     .map(
       (conn) => `
-    <div class="card">
-      <div class="card-header">
-        <div>
-          <div class="card-title">${escapeHtml(conn.name)}</div>
-          <div class="card-subtitle">${escapeHtml(conn.server)} / ${escapeHtml(
-        conn.database
-      )}</div>
+    <tr>
+      <td>
+        <div class="table-cell-content">
+          <div class="table-title">${escapeHtml(conn.name)}</div>
         </div>
-      </div>
-      <div class="card-body">
-        <div class="card-info">
-          <div class="info-row">
-            <span class="info-label">Server</span>
-            <span class="info-value">${escapeHtml(conn.server)}</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">Database</span>
-            <span class="info-value">${escapeHtml(conn.database)}</span>
-          </div>
-          <div class="info-row">
-            <span class="info-label">User</span>
-            <span class="info-value">${
-              conn.user ? escapeHtml(conn.user) : "Windows Auth"
-            }</span>
-          </div>
-          ${
-            conn.lastTested
-              ? `
-          <div class="info-row">
-            <span class="info-label">Last Tested</span>
-            <span class="info-value">${new Date(
-              conn.lastTested
-            ).toLocaleString()}</span>
-          </div>
-          `
-              : ""
-          }
+      </td>
+      <td>
+        <div class="table-cell-content">
+          <div class="table-text">${escapeHtml(conn.server)}${
+        conn.port && conn.port !== 1433 ? `:${conn.port}` : ""
+      }</div>
         </div>
-      </div>
-      <div class="card-actions">
-        <button class="btn btn-primary btn-sm" onclick="testConnection('${
-          conn.id
-        }')">
-          <img src="../icon/refresh-ccw.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px; filter: brightness(0) invert(1);"> Test
-        </button>
-        <button class="btn btn-secondary btn-sm" onclick="editConnection('${
-          conn.id
-        }')">
-          <img src="../icon/pencil.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px; filter: brightness(0) invert(1);"> Edit
-        </button>
-        <button class="btn btn-danger btn-sm" onclick="deleteConnection('${
-          conn.id
-        }')">
-          <img src="../icon/trash-2.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px; filter: brightness(0) invert(1);"> Delete
-        </button>
-      </div>
-    </div>
+      </td>
+      <td>
+        <div class="table-cell-content">
+          <div class="table-text">${escapeHtml(conn.database)}</div>
+        </div>
+      </td>
+      <td>
+        <div class="table-cell-content">
+          <span class="table-status ${conn.lastTested ? "success" : "warning"}">
+            ${conn.lastTested ? "Tested" : "Untested"}
+          </span>
+        </div>
+      </td>
+      <td>
+        <div class="table-actions">
+          <button class="action-btn" onclick="toggleActionDropdown('${
+            conn.id
+          }', event)">
+            <img src="../icon/pencil.svg" alt="Actions">
+          </button>
+          <div id="dropdown-${conn.id}" class="action-dropdown">
+            <button class="action-dropdown-item" onclick="testConnection('${
+              conn.id
+            }')">
+              <img src="../icon/refresh-ccw.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 8px;"> Test
+            </button>
+            <button class="action-dropdown-item" onclick="editConnection('${
+              conn.id
+            }')">
+              <img src="../icon/pencil.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 8px;"> Edit
+            </button>
+            <button class="action-dropdown-item danger" onclick="deleteConnection('${
+              conn.id
+            }')">
+              <img src="../icon/trash-2.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 8px;"> Delete
+            </button>
+          </div>
+        </div>
+      </td>
+    </tr>
   `
     )
     .join("");
 
-  updateJobButtonState();
+  updateConnectionsPagination();
+}
+
+function updateConnectionsPagination() {
+  const totalPages = Math.ceil(filteredConnections.length / connectionsPerPage);
+  const prevBtn = document.getElementById("connections-prev");
+  const nextBtn = document.getElementById("connections-next");
+  const info = document.getElementById("connections-info");
+
+  prevBtn.disabled = connectionsPage <= 1;
+  nextBtn.disabled = connectionsPage >= totalPages;
+  info.textContent = `Page ${connectionsPage} of ${totalPages || 1}`;
 }
 
 async function testConnection(connId) {
@@ -310,6 +476,8 @@ document
 async function loadJobs() {
   connections = await ipcRenderer.invoke("get-connections");
   jobs = await ipcRenderer.invoke("get-jobs");
+  filteredJobs = [...jobs];
+  jobsPage = 1;
 
   document.getElementById("jobs-count").textContent = jobs.length;
 
@@ -318,7 +486,8 @@ async function loadJobs() {
   const jobsNoConnections = document.getElementById("jobs-no-connections");
 
   if (connections.length === 0) {
-    jobsList.innerHTML = "";
+    jobsList.style.display = "none";
+    document.getElementById("jobs-pagination").style.display = "none";
     jobsEmpty.style.display = "none";
     jobsNoConnections.style.display = "block";
     return;
@@ -327,84 +496,138 @@ async function loadJobs() {
   jobsNoConnections.style.display = "none";
 
   if (jobs.length === 0) {
-    jobsList.innerHTML = "";
+    jobsList.style.display = "none";
+    document.getElementById("jobs-pagination").style.display = "none";
     jobsEmpty.style.display = "block";
     return;
   }
 
   jobsEmpty.style.display = "none";
+  jobsList.style.display = "block";
+  document.getElementById("jobs-pagination").style.display = "flex";
+  renderJobsPage();
+}
 
-  jobsList.innerHTML = jobs
+function filterJobs(searchTerm) {
+  const term = searchTerm.toLowerCase();
+  filteredJobs = jobs.filter((job) => {
+    const conn = connections.find((c) => c.id === job.connectionId);
+    const connName = conn ? conn.name : "";
+    return (
+      job.name.toLowerCase().includes(term) ||
+      connName.toLowerCase().includes(term) ||
+      job.schedule.toLowerCase().includes(term)
+    );
+  });
+  jobsPage = 1;
+  renderJobsPage();
+}
+
+function renderJobsPage() {
+  const tbody = document.getElementById("jobs-tbody");
+  const startIndex = (jobsPage - 1) * jobsPerPage;
+  const endIndex = startIndex + jobsPerPage;
+  const pageJobs = filteredJobs.slice(startIndex, endIndex);
+
+  tbody.innerHTML = pageJobs
     .map((job) => {
-      const conn = connections.find((c) => c.id === job.connectionId);
-      const connName = conn ? conn.name : "Unknown";
+      // Handle both old format (connectionId) and new format (connectionIds)
+      const connectionIds = job.connectionIds || [job.connectionId];
+      const connectionNames = connectionIds
+        .map((id) => {
+          const conn = connections.find((c) => c.id === id);
+          return conn ? conn.name : "Unknown";
+        })
+        .join(", ");
 
       return `
-      <div class="card">
-        <div class="card-header">
-          <div>
-            <div class="card-title">${escapeHtml(job.name)}</div>
-            <div class="card-subtitle"><img src="../icon/cable.svg" style="width: 12px; height: 12px; vertical-align: middle; margin-right: 4px;"> ${escapeHtml(
-              connName
-            )}</div>
+      <tr>
+        <td>
+          <div class="table-cell-content">
+            <div class="table-title">${escapeHtml(job.name)}</div>
           </div>
-          <span class="card-badge ${job.enabled ? "success" : "danger"}">
-            ${job.enabled ? "● Enabled" : "○ Disabled"}
-          </span>
-        </div>
-        <div class="card-body">
-          <div class="card-info">
-            <div class="info-row">
-              <span class="info-label">Schedule</span>
-              <span class="info-value">${escapeHtml(job.schedule)}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Trigger</span>
-              <span class="info-value">${job.trigger}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Destinations</span>
-              <span class="info-value">${job.destinations.length}</span>
-            </div>
-            <div class="info-row">
-              <span class="info-label">Last Run</span>
-              <span class="info-value">${
-                job.lastRun ? new Date(job.lastRun).toLocaleString() : "Never"
-              }</span>
-            </div>
+        </td>
+        <td>
+          <div class="table-cell-content">
+            <div class="table-text">${escapeHtml(connectionNames)}</div>
           </div>
-        </div>
-        <div class="card-actions">
-          <button class="btn btn-primary btn-sm" onclick="runJob('${job.id}')">
-            <img src="../icon/mouse-pointer-2.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px; filter: brightness(0) invert(1);"> Run
-          </button>
-          <button class="btn btn-primary btn-sm" onclick="testJob('${job.id}')">
-            <img src="../icon/refresh-ccw.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px; filter: brightness(0) invert(1);"> Test
-          </button>
-          <button class="btn btn-secondary btn-sm" onclick="editJob('${
-            job.id
-          }')">
-            <img src="../icon/pencil.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px; filter: brightness(0) invert(1);"> Edit
-          </button>
-          <button class="btn btn-${
-            job.enabled ? "warning" : "success"
-          } btn-sm" onclick="toggleJob('${job.id}', ${!job.enabled})">
-            <img src="../icon/${
-              job.enabled ? "mouse-pointer-ban.svg" : "mouse-pointer-2.svg"
-            }" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px; filter: brightness(0) invert(1);"> ${
+        </td>
+        <td>
+          <div class="table-cell-content">
+            <div class="table-text">${escapeHtml(job.schedule)}</div>
+          </div>
+        </td>
+        <td>
+          <div class="table-cell-content">
+            <span class="table-status ${job.enabled ? "success" : "danger"}">
+              ${job.enabled ? "Enabled" : "Disabled"}
+            </span>
+          </div>
+        </td>
+        <td>
+          <div class="table-cell-content">
+            <div class="table-text">${job.destinations.length} destination${
+        job.destinations.length !== 1 ? "s" : ""
+      }</div>
+          </div>
+        </td>
+        <td>
+          <div class="table-actions">
+            <button class="action-btn" onclick="toggleActionDropdown('job-${
+              job.id
+            }', event)">
+              <img src="../icon/pencil.svg" alt="Actions">
+            </button>
+            <div id="dropdown-job-${job.id}" class="action-dropdown">
+              <button class="action-dropdown-item" onclick="runJob('${
+                job.id
+              }')">
+                <img src="../icon/mouse-pointer-2.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 8px;"> Run
+              </button>
+              <button class="action-dropdown-item" onclick="testJob('${
+                job.id
+              }')">
+                <img src="../icon/refresh-ccw.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 8px;"> Test
+              </button>
+              <button class="action-dropdown-item" onclick="editJob('${
+                job.id
+              }')">
+                <img src="../icon/pencil.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 8px;"> Edit
+              </button>
+              <button class="action-dropdown-item ${
+                job.enabled ? "warning" : "success"
+              }" onclick="toggleJob('${job.id}', ${!job.enabled})">
+                <img src="../icon/${
+                  job.enabled ? "mouse-pointer-ban.svg" : "mouse-pointer-2.svg"
+                }" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 8px;"> ${
         job.enabled ? "Disable" : "Enable"
       }
-          </button>
-          <button class="btn btn-danger btn-sm" onclick="deleteJob('${
-            job.id
-          }')">
-            <img src="../icon/trash-2.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 4px; filter: brightness(0) invert(1);"> Delete
-          </button>
-        </div>
-      </div>
+              </button>
+              <button class="action-dropdown-item danger" onclick="deleteJob('${
+                job.id
+              }')">
+                <img src="../icon/trash-2.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 8px;"> Delete
+              </button>
+            </div>
+          </div>
+        </td>
+      </tr>
     `;
     })
     .join("");
+
+  updateJobsPagination();
+}
+
+function updateJobsPagination() {
+  const totalPages = Math.ceil(filteredJobs.length / jobsPerPage);
+  const prevBtn = document.getElementById("jobs-prev");
+  const nextBtn = document.getElementById("jobs-next");
+  const info = document.getElementById("jobs-info");
+
+  prevBtn.disabled = jobsPage <= 1;
+  nextBtn.disabled = jobsPage >= totalPages;
+  info.textContent = `Page ${jobsPage} of ${totalPages || 1}`;
 }
 
 async function runJob(jobId) {
@@ -445,19 +668,16 @@ async function editJob(jobId) {
 
   // Populate form
   document.getElementById("job-name").value = job.name;
-  document.getElementById("job-connection").value = job.connectionId;
+
+  // Populate checkboxes with job's connections
+  selectedConnections = (job.connectionIds || [job.connectionId]).filter(
+    (id) => id
+  ); // Support both old and new format, filter out undefined
+  populateConnectionCheckboxes();
+
   document.getElementById("job-query").value = job.query;
   document.getElementById("job-schedule").value = job.schedule;
   document.getElementById("job-trigger").value = job.trigger;
-
-  // Populate connection dropdown
-  const connSelect = document.getElementById("job-connection");
-  connSelect.innerHTML =
-    '<option value="">-- Select Connection --</option>' +
-    connections
-      .map((c) => `<option value="${c.id}">${c.name}</option>`)
-      .join("");
-  connSelect.value = job.connectionId;
 
   // Clear and populate destinations
   const container = document.getElementById("destinations-container");
@@ -509,13 +729,9 @@ document.getElementById("add-job-btn").addEventListener("click", () => {
   document.getElementById("job-modal-title").textContent = "Create New Job";
   document.getElementById("job-form").reset();
 
-  // Populate connection dropdown
-  const connSelect = document.getElementById("job-connection");
-  connSelect.innerHTML =
-    '<option value="">-- Select Connection --</option>' +
-    connections
-      .map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`)
-      .join("");
+  // Initialize checkboxes connections
+  selectedConnections = [];
+  populateConnectionCheckboxes();
 
   // Clear destinations
   document.getElementById("destinations-container").innerHTML = "";
@@ -846,11 +1062,16 @@ document.getElementById("job-form").addEventListener("submit", async (e) => {
     return;
   }
 
+  if (selectedConnections.length === 0) {
+    alert("⚠️ Please select at least one connection!");
+    return;
+  }
+
   const job = {
     id: currentEditJob || `job_${Date.now()}`,
     name: document.getElementById("job-name").value,
     enabled: true,
-    connectionId: document.getElementById("job-connection").value,
+    connectionIds: selectedConnections, // Changed from connectionId to connectionIds
     query: document.getElementById("job-query").value,
     schedule: document.getElementById("job-schedule").value,
     trigger: document.getElementById("job-trigger").value,

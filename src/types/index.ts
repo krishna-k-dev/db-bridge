@@ -21,7 +21,8 @@ export interface Job {
   id: string;
   name: string;
   enabled: boolean;
-  connectionId: string; // Reference to SQLConnection by ID
+  connectionId?: string; // For backward compatibility
+  connectionIds?: string[]; // New field for multiple connections
   query: string;
   schedule: string; // cron expression or interval in minutes (e.g., "*/2 * * * *" or "2m")
   trigger: "always" | "onChange";
@@ -81,6 +82,8 @@ export interface JobMeta {
   jobName: string;
   runTime: Date;
   rowCount: number;
+  connectionId?: string;
+  connectionName?: string;
 }
 
 export interface SendResult {
@@ -92,6 +95,12 @@ export interface SendResult {
 export interface DestinationAdapter {
   name: string;
   send(data: any[], config: Destination, meta: JobMeta): Promise<SendResult>;
+  // Optional: Multi-connection support
+  sendMultiConnection?(
+    dataWithMeta: Array<{ connection: any; data: any[] }>,
+    config: Destination,
+    meta: { jobId: string; jobName: string; runTime: Date }
+  ): Promise<SendResult>;
 }
 
 export interface AppConfig {
