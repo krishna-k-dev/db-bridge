@@ -60,6 +60,12 @@
             /></span>
             <span class="label">Logs</span>
           </button>
+          <button class="nav-item" data-page="settings">
+            <span class="icon"
+              ><img src="../icon/settings.svg" class="nav-icon"
+            /></span>
+            <span class="label">Settings</span>
+          </button>
         </nav>
 
         <div class="sidebar-footer">
@@ -79,18 +85,44 @@
               <h2 class="page-title">SQL Server Connections</h2>
               <p class="page-subtitle">Manage your database connections</p>
             </div>
-            <button class="btn btn-primary" id="add-connection-btn">
-              <img
-                src="../icon/plus.svg"
-                style="
-                  width: 16px;
-                  height: 16px;
-                  vertical-align: middle;
-                  margin-right: 6px;
-                "
-              />
-              Add Connection
-            </button>
+            <div style="display: flex; gap: 8px">
+              <button class="btn btn-secondary" id="bulk-upload-btn">
+                <img
+                  src="../icon/upload.svg"
+                  style="
+                    width: 16px;
+                    height: 16px;
+                    vertical-align: middle;
+                    margin-right: 6px;
+                  "
+                />
+                Bulk Upload
+              </button>
+              <button class="btn btn-secondary" id="test-all-connections-btn">
+                <img
+                  src="../icon/refresh-ccw.svg"
+                  style="
+                    width: 16px;
+                    height: 16px;
+                    vertical-align: middle;
+                    margin-right: 6px;
+                  "
+                />
+                Test All
+              </button>
+              <button class="btn btn-primary" id="add-connection-btn">
+                <img
+                  src="../icon/plus.svg"
+                  style="
+                    width: 16px;
+                    height: 16px;
+                    vertical-align: middle;
+                    margin-right: 6px;
+                  "
+                />
+                Add Connection
+              </button>
+            </div>
           </header>
 
           <div class="content-area">
@@ -308,6 +340,87 @@
             <div id="logs-container" class="logs-viewer"></div>
           </div>
         </section>
+
+        <!-- Settings Page -->
+        <section class="page" id="settings-page">
+          <header class="page-header">
+            <div>
+              <h2 class="page-title">Settings</h2>
+              <p class="page-subtitle">Manage financial years and partners</p>
+            </div>
+          </header>
+
+          <div class="content-area">
+            <div
+              style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px"
+            >
+              <!-- Financial Years Section -->
+              <div class="settings-card">
+                <div
+                  style="
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 16px;
+                  "
+                >
+                  <h3 style="margin: 0; font-size: 18px; font-weight: 600">
+                    Financial Years
+                  </h3>
+                  <button
+                    class="btn btn-primary btn-sm"
+                    id="add-financial-year-btn"
+                  >
+                    <img
+                      src="../icon/plus.svg"
+                      style="
+                        width: 14px;
+                        height: 14px;
+                        vertical-align: middle;
+                        margin-right: 4px;
+                      "
+                    />
+                    Add Year
+                  </button>
+                </div>
+                <div id="financial-years-list" class="settings-list">
+                  <!-- Financial years will be listed here -->
+                </div>
+              </div>
+
+              <!-- Partners Section -->
+              <div class="settings-card">
+                <div
+                  style="
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    margin-bottom: 16px;
+                  "
+                >
+                  <h3 style="margin: 0; font-size: 18px; font-weight: 600">
+                    Partners
+                  </h3>
+                  <button class="btn btn-primary btn-sm" id="add-partner-btn">
+                    <img
+                      src="../icon/plus.svg"
+                      style="
+                        width: 14px;
+                        height: 14px;
+                        vertical-align: middle;
+                        margin-right: 4px;
+                      "
+                    />
+                    Add Partner
+                  </button>
+                </div>
+                <div id="partners-list" class="settings-list">
+                  <!-- Partners will be listed here -->
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
 
@@ -386,44 +499,93 @@
               <span>Trust Server Certificate</span>
             </label>
           </div>
-        </div>
 
-        <div class="dialog-footer">
-          <button
-            type="button"
-            class="btn btn-secondary"
-            onclick="document.getElementById('connection-modal').close()"
+          <div class="form-group">
+            <label>Financial Year *</label>
+            <select id="conn-financial-year" required>
+              <option value="">Select Financial Year</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Group *</label>
+            <div style="display: flex; gap: 20px; margin-top: 8px">
+              <label class="radio-label">
+                <input
+                  type="radio"
+                  name="conn-group"
+                  value="self"
+                  id="conn-group-self"
+                  checked
+                />
+                <span>Self</span>
+              </label>
+              <label class="radio-label">
+                <input
+                  type="radio"
+                  name="conn-group"
+                  value="partner"
+                  id="conn-group-partner"
+                />
+                <span>Partner</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="form-group" id="conn-partner-group" style="display: none">
+            <label>Partner *</label>
+            <select id="conn-partner">
+              <option value="">Select Partner</option>
+            </select>
+          </div>
+
+          <div
+            style="
+              display: flex;
+              justify-content: flex-end;
+              margin-bottom: 24px;
+              gap: 20px;
+            "
           >
-            Cancel
-          </button>
-          <button
-            type="button"
-            class="btn btn-primary"
-            id="test-connection-btn-modal"
-          >
-            <img
-              src="../icon/refresh-ccw.svg"
-              style="
-                width: 16px;
-                height: 16px;
-                vertical-align: middle;
-                margin-right: 6px;
-              "
-            />
-            Test Connection
-          </button>
-          <button type="submit" class="btn btn-success">
-            <img
-              src="../icon/pencil.svg"
-              style="
-                width: 16px;
-                height: 16px;
-                vertical-align: middle;
-                margin-right: 6px;
-              "
-            />
-            Save
-          </button>
+            <button
+              type="button"
+              class="btn btn-secondary"
+              onclick="document.getElementById('connection-modal').close()"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              class="btn btn-primary"
+              id="test-connection-btn-modal"
+            >
+              <img
+                src="../icon/refresh-ccw.svg"
+                style="
+                  width: 16px;
+                  height: 16px;
+                  vertical-align: middle;
+                  margin-right: 6px;
+                "
+              />
+              Test Connection
+            </button>
+            <button type="submit" class="btn btn-success">
+              <img
+                src="../icon/pencil.svg"
+                style="
+                  width: 16px;
+                  height: 16px;
+                  vertical-align: middle;
+                  margin-right: 6px;
+                "
+              />
+              Save
+            </button>
+          </div>
+
+          <div style="margin-top: 30px">This is a test message for spacing</div>
         </div>
       </form>
     </dialog>
@@ -455,12 +617,70 @@
               />
             </div>
             <div class="form-group">
-              <label
-                >Connections *
-                <span class="selected-count" id="selected-count"
-                  >(0 selected)</span
-                ></label
+              <label>Filter Connections</label>
+              <div class="form-row" style="margin-bottom: 12px">
+                <div class="form-group" style="margin-bottom: 0">
+                  <label style="font-size: 13px">Financial Year</label>
+                  <select id="job-financial-year">
+                    <option value="">All Financial Years</option>
+                  </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0">
+                  <label style="font-size: 13px">Group</label>
+                  <select id="job-group-filter">
+                    <option value="">All</option>
+                    <option value="self">Self</option>
+                    <option value="partner">Partner</option>
+                  </select>
+                </div>
+                <div
+                  class="form-group"
+                  id="job-partner-filter-group"
+                  style="margin-bottom: 0; display: none"
+                >
+                  <label style="font-size: 13px">Partner</label>
+                  <select id="job-partner">
+                    <option value="">All Partners</option>
+                  </select>
+                </div>
+              </div>
+              <div style="display: flex; gap: 8px; margin-bottom: 12px">
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  id="apply-connection-filter-btn"
+                >
+                  Filter
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  id="clear-connection-filter-btn"
+                >
+                  Clear Filter
+                </button>
+              </div>
+            </div>
+            <div class="form-group">
+              <div
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                  margin-bottom: 8px;
+                "
               >
+                <label style="margin-bottom: 0">
+                  Connections *
+                  <span class="selected-count" id="selected-count"
+                    >(0 selected)</span
+                  >
+                </label>
+                <label class="checkbox-label" style="font-size: 13px">
+                  <input type="checkbox" id="select-all-connections" />
+                  <span>Select All</span>
+                </label>
+              </div>
               <div
                 class="connections-checkbox-container"
                 id="connections-checkbox-container"
@@ -581,6 +801,146 @@
               This is a test message for spacing
             </div>
           </div>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Financial Year Modal -->
+    <dialog id="financial-year-modal" class="native-dialog">
+      <div class="dialog-header">
+        <h3>Add Financial Year</h3>
+        <button
+          type="button"
+          class="dialog-close"
+          onclick="document.getElementById('financial-year-modal').close()"
+        >
+          &times;
+        </button>
+      </div>
+      <form id="financial-year-form" method="dialog">
+        <div class="dialog-body">
+          <div class="form-group">
+            <label>Financial Year *</label>
+            <input
+              type="text"
+              id="financial-year-name"
+              required
+              placeholder="e.g., 2024-2025"
+            />
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            onclick="document.getElementById('financial-year-modal').close()"
+          >
+            Cancel
+          </button>
+          <button type="submit" class="btn btn-success">Add</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Partner Modal -->
+    <dialog id="partner-modal" class="native-dialog">
+      <div class="dialog-header">
+        <h3>Add Partner</h3>
+        <button
+          type="button"
+          class="dialog-close"
+          onclick="document.getElementById('partner-modal').close()"
+        >
+          &times;
+        </button>
+      </div>
+      <form id="partner-form" method="dialog">
+        <div class="dialog-body">
+          <div class="form-group">
+            <label>Partner Name *</label>
+            <input
+              type="text"
+              id="partner-name"
+              required
+              placeholder="Enter partner name"
+            />
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            onclick="document.getElementById('partner-modal').close()"
+          >
+            Cancel
+          </button>
+          <button type="submit" class="btn btn-success">Add</button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Bulk Upload Modal -->
+    <dialog id="bulk-upload-modal" class="native-dialog">
+      <div class="dialog-header">
+        <h3>Bulk Upload Connections</h3>
+        <button
+          type="button"
+          class="dialog-close"
+          onclick="document.getElementById('bulk-upload-modal').close()"
+        >
+          &times;
+        </button>
+      </div>
+      <form id="bulk-upload-form" method="dialog">
+        <div class="dialog-body">
+          <div class="form-group">
+            <label>Upload File (CSV/Excel) *</label>
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              id="download-template-btn"
+              style="float: right; margin-top: -30px"
+            >
+              <img
+                src="../icon/download.svg"
+                style="
+                  width: 14px;
+                  height: 14px;
+                  vertical-align: middle;
+                  margin-right: 4px;
+                "
+              />
+              Download Template
+            </button>
+            <input
+              type="file"
+              id="bulk-upload-file"
+              accept=".csv,.xlsx,.xls"
+              required
+            />
+            <small
+              >CSV columns: name, server, database, user, password, port,
+              financialYear, group, partner</small
+            >
+          </div>
+          <div
+            id="bulk-upload-preview"
+            style="margin-top: 16px; max-height: 300px; overflow-y: auto"
+          >
+            <!-- Preview will be shown here -->
+          </div>
+        </div>
+        <div class="dialog-footer">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            onclick="document.getElementById('bulk-upload-modal').close()"
+          >
+            Cancel
+          </button>
+          <button type="submit" class="btn btn-success">
+            Upload Connections
+          </button>
         </div>
       </form>
     </dialog>

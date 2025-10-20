@@ -21,8 +21,11 @@ export class WebhookAdapter implements DestinationAdapter {
 
       // Combine all data into array format - each connection's data in array
       const combinedPayload = dataWithMeta.map(({ connection, data }) => ({
-        connectionName: connection.name, // MUST - Connection name
-        connectionId: connection.id, // Optional - Connection ID
+        connectionName: connection.name, // Connection name
+        connectionId: connection.id, // Connection ID
+        financialYear: connection.financialYear || "", // Financial Year
+        group: connection.group || "self", // Group (self/partner)
+        partner: connection.group === "partner" ? connection.partner || "" : "", // Partner name if group is partner
         rowCount: data.length, // Row count for this connection
         data: data, // Actual data array
       }));
@@ -82,6 +85,10 @@ export class WebhookAdapter implements DestinationAdapter {
           data: {
             jobId: meta.jobId,
             jobName: meta.jobName,
+            connectionName: meta.connectionName || "",
+            financialYear: (meta as any).financialYear || "",
+            group: (meta as any).group || "self",
+            partner: (meta as any).partner || "",
             timestamp: meta.runTime,
             rowCount: batch.length,
             data: batch,

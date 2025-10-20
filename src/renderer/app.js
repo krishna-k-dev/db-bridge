@@ -58,6 +58,8 @@ document.querySelectorAll(".nav-item").forEach((nav) => {
       loadJobs();
     } else if (pageName === "logs") {
       loadLogs();
+    } else if (pageName === "settings") {
+      loadSettings();
     }
   });
 });
@@ -89,8 +91,9 @@ document.addEventListener("click", (event) => {
 
 // ===== CONNECTIONS CHECKBOXES =====
 let selectedConnections = [];
+let filteredConnectionsForJob = [];
 
-function populateConnectionCheckboxes() {
+function populateConnectionCheckboxes(filterConnections = null) {
   const container = document.getElementById("connections-checkbox-container");
   const countElement = document.getElementById("selected-count");
 
@@ -98,13 +101,17 @@ function populateConnectionCheckboxes() {
 
   container.innerHTML = "";
 
-  if (connections.length === 0) {
+  // Use filtered connections if provided, otherwise use all connections
+  const connectionsToShow = filterConnections || connections;
+  filteredConnectionsForJob = connectionsToShow;
+
+  if (connectionsToShow.length === 0) {
     container.innerHTML =
       '<p style="color: var(--gray-500); font-size: 13px; margin: 0;">No connections available</p>';
     return;
   }
 
-  connections.forEach((conn) => {
+  connectionsToShow.forEach((conn) => {
     const item = document.createElement("div");
     item.className = "connection-checkbox-item";
 
@@ -113,10 +120,13 @@ function populateConnectionCheckboxes() {
     checkbox.id = `conn-${conn.id}`;
     checkbox.value = conn.id;
     checkbox.checked = selectedConnections.includes(conn.id);
+    checkbox.className = "connection-checkbox";
 
     const label = document.createElement("label");
     label.htmlFor = `conn-${conn.id}`;
-    label.textContent = conn.name;
+    label.textContent = `${conn.name} ${
+      conn.financialYear ? "(" + conn.financialYear + ")" : ""
+    }`;
 
     checkbox.addEventListener("change", () => {
       if (checkbox.checked) {
@@ -129,6 +139,7 @@ function populateConnectionCheckboxes() {
         );
       }
       updateConnectionCount();
+      updateSelectAllCheckbox();
     });
 
     item.appendChild(checkbox);
@@ -137,6 +148,7 @@ function populateConnectionCheckboxes() {
   });
 
   updateConnectionCount();
+  updateSelectAllCheckbox();
 }
 
 function updateConnectionCount() {
@@ -144,6 +156,19 @@ function updateConnectionCount() {
   if (countElement) {
     countElement.textContent = `(${selectedConnections.length} selected)`;
   }
+}
+
+function updateSelectAllCheckbox() {
+  const selectAllCheckbox = document.getElementById("select-all-connections");
+  if (!selectAllCheckbox) return;
+
+  const checkboxes = document.querySelectorAll(".connection-checkbox");
+  const checkedCount = Array.from(checkboxes).filter((cb) => cb.checked).length;
+
+  selectAllCheckbox.checked =
+    checkboxes.length > 0 && checkedCount === checkboxes.length;
+  selectAllCheckbox.indeterminate =
+    checkedCount > 0 && checkedCount < checkboxes.length;
 }
 
 // ===== SEARCH AND PAGINATION =====
@@ -239,6 +264,20 @@ function renderConnectionsPage() {
       <td>
         <div class="table-cell-content">
           <div class="table-title">${escapeHtml(conn.name)}</div>
+          <div class="table-text" style="font-size: 12px; color: var(--gray-500);">
+            ${
+              conn.financialYear ? `FY: ${escapeHtml(conn.financialYear)}` : ""
+            } 
+            ${
+              conn.group
+                ? `• ${
+                    conn.group === "partner"
+                      ? "Partner: " + escapeHtml(conn.partner || "")
+                      : "Self"
+                  }`
+                : ""
+            }
+          </div>
         </div>
       </td>
       <td>
@@ -277,6 +316,11 @@ function renderConnectionsPage() {
               conn.id
             }')">
               <img src="../icon/pencil.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 8px;"> Edit
+            </button>
+            <button class="action-dropdown-item" onclick="duplicateConnection('${
+              conn.id
+            }')">
+              <img src="../icon/copy.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 8px;"> Duplicate
             </button>
             <button class="action-dropdown-item danger" onclick="deleteConnection('${
               conn.id
@@ -323,11 +367,14 @@ async function testConnection(connId) {
   }
 }
 
-function editConnection(connId) {
+async function editConnection(connId) {
   const conn = connections.find((c) => c.id === connId);
   if (!conn) return;
 
   currentEditConnection = connId;
+
+  // Load settings to populate dropdowns
+  await loadSettings();
 
   document.getElementById("connection-modal-title").textContent =
     "Edit Connection";
@@ -346,7 +393,46 @@ function editConnection(connId) {
   document.getElementById("conn-trust-cert").checked =
     conn.options?.trustServerCertificate ?? true;
 
+  // Set financial year
+  document.getElementById("conn-financial-year").value =
+    conn.financialYear || "";
+
+  // Set group
+  if (conn.group === "partner") {
+    document.getElementById("conn-group-partner").checked = true;
+    document.getElementById("conn-partner-group").style.display = "block";
+    document
+      .getElementById("conn-partner")
+      .setAttribute("required", "required");
+    document.getElementById("conn-partner").value = conn.partner || "";
+  } else {
+    document.getElementById("conn-group-self").checked = true;
+    document.getElementById("conn-partner-group").style.display = "none";
+    document.getElementById("conn-partner").removeAttribute("required");
+  }
+
   openModal("connection-modal");
+}
+
+async function duplicateConnection(connId) {
+  const conn = connections.find((c) => c.id === connId);
+  if (!conn) return;
+
+  const newConnection = {
+    ...conn,
+    id: `conn_${Date.now()}`,
+    name: `${conn.name} (Copy)`,
+    createdAt: new Date(),
+    lastTested: null,
+  };
+
+  try {
+    await ipcRenderer.invoke("add-connection", newConnection);
+    alert("✅ Connection duplicated!");
+    loadConnections();
+  } catch (error) {
+    alert(`❌ Error: ${error.message}`);
+  }
 }
 
 async function deleteConnection(connId) {
@@ -365,14 +451,22 @@ async function deleteConnection(connId) {
   }
 }
 
-document.getElementById("add-connection-btn").addEventListener("click", () => {
-  currentEditConnection = null;
-  document.getElementById("connection-modal-title").textContent =
-    "Add Connection";
-  document.getElementById("connection-form").reset();
-  document.getElementById("conn-trust-cert").checked = true;
-  openModal("connection-modal");
-});
+document
+  .getElementById("add-connection-btn")
+  .addEventListener("click", async () => {
+    currentEditConnection = null;
+    document.getElementById("connection-modal-title").textContent =
+      "Add Connection";
+    document.getElementById("connection-form").reset();
+    document.getElementById("conn-trust-cert").checked = true;
+    document.getElementById("conn-group-self").checked = true;
+    document.getElementById("conn-partner-group").style.display = "none";
+
+    // Load settings to populate dropdowns
+    await loadSettings();
+
+    openModal("connection-modal");
+  });
 
 document
   .getElementById("connection-form")
@@ -391,6 +485,10 @@ document
       port = parseInt(parts[1]) || 1433;
     }
 
+    const group = document.querySelector(
+      'input[name="conn-group"]:checked'
+    ).value;
+
     const connection = {
       id: currentEditConnection || `conn_${Date.now()}`,
       name: document.getElementById("conn-name").value,
@@ -399,6 +497,12 @@ document
       database: document.getElementById("conn-database").value,
       user: document.getElementById("conn-user").value || undefined,
       password: document.getElementById("conn-password").value || undefined,
+      financialYear: document.getElementById("conn-financial-year").value,
+      group: group,
+      partner:
+        group === "partner"
+          ? document.getElementById("conn-partner").value
+          : "",
       options: {
         trustServerCertificate:
           document.getElementById("conn-trust-cert").checked,
@@ -594,6 +698,11 @@ function renderJobsPage() {
               }')">
                 <img src="../icon/pencil.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 8px;"> Edit
               </button>
+              <button class="action-dropdown-item" onclick="duplicateJob('${
+                job.id
+              }')">
+                <img src="../icon/copy.svg" style="width: 14px; height: 14px; vertical-align: middle; margin-right: 8px;"> Duplicate
+              </button>
               <button class="action-dropdown-item ${
                 job.enabled ? "warning" : "success"
               }" onclick="toggleJob('${job.id}', ${!job.enabled})">
@@ -698,6 +807,27 @@ async function toggleJob(jobId, enabled) {
   }
 }
 
+async function duplicateJob(jobId) {
+  const job = jobs.find((j) => j.id === jobId);
+  if (!job) return;
+
+  const newJob = {
+    ...job,
+    id: `job_${Date.now()}`,
+    name: `${job.name} (Copy)`,
+    enabled: false,
+    lastRun: null,
+  };
+
+  try {
+    await ipcRenderer.invoke("add-job", newJob);
+    alert("✅ Job duplicated! (Disabled by default)");
+    loadJobs();
+  } catch (error) {
+    alert(`❌ Error: ${error.message}`);
+  }
+}
+
 async function deleteJob(jobId) {
   if (!confirm("Delete this job permanently?")) return;
 
@@ -741,6 +871,74 @@ document.getElementById("add-job-btn").addEventListener("click", () => {
 
   openModal("job-modal");
 });
+
+// Select All Connections checkbox
+document
+  .getElementById("select-all-connections")
+  ?.addEventListener("change", (e) => {
+    const checkboxes = document.querySelectorAll(".connection-checkbox");
+    checkboxes.forEach((cb) => {
+      cb.checked = e.target.checked;
+      const connId = cb.value;
+      if (e.target.checked) {
+        if (!selectedConnections.includes(connId)) {
+          selectedConnections.push(connId);
+        }
+      } else {
+        selectedConnections = selectedConnections.filter((id) => id !== connId);
+      }
+    });
+    updateConnectionCount();
+  });
+
+// Show/hide partner filter based on group selection
+document.getElementById("job-group-filter")?.addEventListener("change", (e) => {
+  const partnerGroup = document.getElementById("job-partner-filter-group");
+  if (e.target.value === "partner") {
+    partnerGroup.style.display = "block";
+  } else {
+    partnerGroup.style.display = "none";
+  }
+});
+
+// Apply Connection Filter
+document
+  .getElementById("apply-connection-filter-btn")
+  ?.addEventListener("click", () => {
+    const financialYear = document.getElementById("job-financial-year").value;
+    const group = document.getElementById("job-group-filter").value;
+    const partner = document.getElementById("job-partner").value;
+
+    let filtered = [...connections];
+
+    if (financialYear) {
+      filtered = filtered.filter(
+        (conn) => conn.financialYear === financialYear
+      );
+    }
+
+    if (group) {
+      filtered = filtered.filter((conn) => conn.group === group);
+    }
+
+    if (group === "partner" && partner) {
+      filtered = filtered.filter((conn) => conn.partner === partner);
+    }
+
+    populateConnectionCheckboxes(filtered);
+  });
+
+// Clear Connection Filter
+document
+  .getElementById("clear-connection-filter-btn")
+  ?.addEventListener("click", () => {
+    document.getElementById("job-financial-year").value = "";
+    document.getElementById("job-group-filter").value = "";
+    document.getElementById("job-partner").value = "";
+    document.getElementById("job-partner-filter-group").style.display = "none";
+
+    populateConnectionCheckboxes();
+  });
 
 document
   .getElementById("job-schedule-preset")
@@ -1190,5 +1388,564 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
+// ===== SETTINGS PAGE =====
+let settings = {
+  financialYears: [],
+  partners: [],
+};
+
+async function loadSettings() {
+  try {
+    settings = await ipcRenderer.invoke("get-settings");
+    if (!settings.financialYears) settings.financialYears = [];
+    if (!settings.partners) settings.partners = [];
+
+    renderFinancialYears();
+    renderPartners();
+    populateFinancialYearDropdowns();
+    populatePartnerDropdowns();
+  } catch (error) {
+    console.error("Error loading settings:", error);
+  }
+}
+
+function renderFinancialYears() {
+  const container = document.getElementById("financial-years-list");
+  if (!container) {
+    console.warn("Financial years list container not found");
+    return;
+  }
+
+  if (!settings.financialYears || settings.financialYears.length === 0) {
+    container.innerHTML =
+      '<p style="color: var(--gray-500); font-size: 13px;">No financial years added yet</p>';
+    return;
+  }
+
+  container.innerHTML = settings.financialYears
+    .map(
+      (year, index) => `
+    <div class="settings-list-item">
+      <span class="settings-list-item-text">${escapeHtml(year)}</span>
+      <div class="settings-list-item-actions">
+        <button class="btn-secondary" style="background: var(--primary); color: white;" onclick="editFinancialYear(${index})">Edit</button>
+        <button class="btn-danger" onclick="deleteFinancialYear(${index})">Delete</button>
+      </div>
+    </div>
+  `
+    )
+    .join("");
+}
+
+function renderPartners() {
+  const container = document.getElementById("partners-list");
+  if (!container) {
+    console.warn("Partners list container not found");
+    return;
+  }
+
+  if (!settings.partners || settings.partners.length === 0) {
+    container.innerHTML =
+      '<p style="color: var(--gray-500); font-size: 13px;">No partners added yet</p>';
+    return;
+  }
+
+  container.innerHTML = settings.partners
+    .map(
+      (partner, index) => `
+    <div class="settings-list-item">
+      <span class="settings-list-item-text">${escapeHtml(partner)}</span>
+      <div class="settings-list-item-actions">
+        <button class="btn-secondary" style="background: var(--primary); color: white;" onclick="editPartner(${index})">Edit</button>
+        <button class="btn-danger" onclick="deletePartner(${index})">Delete</button>
+      </div>
+    </div>
+  `
+    )
+    .join("");
+}
+
+function populateFinancialYearDropdowns() {
+  const connSelect = document.getElementById("conn-financial-year");
+  const jobSelect = document.getElementById("job-financial-year");
+
+  if (connSelect) {
+    const currentValue = connSelect.value;
+    connSelect.innerHTML =
+      '<option value="">Select Financial Year</option>' +
+      settings.financialYears
+        .map(
+          (year) =>
+            `<option value="${escapeHtml(year)}">${escapeHtml(year)}</option>`
+        )
+        .join("");
+    if (currentValue) connSelect.value = currentValue;
+  }
+
+  if (jobSelect) {
+    const currentValue = jobSelect.value;
+    jobSelect.innerHTML =
+      '<option value="">All Financial Years</option>' +
+      settings.financialYears
+        .map(
+          (year) =>
+            `<option value="${escapeHtml(year)}">${escapeHtml(year)}</option>`
+        )
+        .join("");
+    if (currentValue) jobSelect.value = currentValue;
+  }
+}
+
+function populatePartnerDropdowns() {
+  const connSelect = document.getElementById("conn-partner");
+  const jobSelect = document.getElementById("job-partner");
+
+  if (connSelect) {
+    const currentValue = connSelect.value;
+    connSelect.innerHTML =
+      '<option value="">Select Partner</option>' +
+      settings.partners
+        .map(
+          (partner) =>
+            `<option value="${escapeHtml(partner)}">${escapeHtml(
+              partner
+            )}</option>`
+        )
+        .join("");
+    if (currentValue) connSelect.value = currentValue;
+  }
+
+  if (jobSelect) {
+    const currentValue = jobSelect.value;
+    jobSelect.innerHTML =
+      '<option value="">All Partners</option>' +
+      settings.partners
+        .map(
+          (partner) =>
+            `<option value="${escapeHtml(partner)}">${escapeHtml(
+              partner
+            )}</option>`
+        )
+        .join("");
+    if (currentValue) jobSelect.value = currentValue;
+  }
+}
+
+// Financial Year Modal
+let currentEditFinancialYearIndex = null;
+
+document
+  .getElementById("add-financial-year-btn")
+  .addEventListener("click", () => {
+    currentEditFinancialYearIndex = null;
+    document
+      .getElementById("financial-year-modal")
+      .querySelector("h3").textContent = "Add Financial Year";
+    document.getElementById("financial-year-form").reset();
+    openModal("financial-year-modal");
+  });
+
+function editFinancialYear(index) {
+  currentEditFinancialYearIndex = index;
+  document
+    .getElementById("financial-year-modal")
+    .querySelector("h3").textContent = "Edit Financial Year";
+  document.getElementById("financial-year-name").value =
+    settings.financialYears[index];
+  openModal("financial-year-modal");
+}
+
+document
+  .getElementById("financial-year-form")
+  .addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const yearName = document
+      .getElementById("financial-year-name")
+      .value.trim();
+
+    if (!yearName) {
+      alert("Please enter a financial year!");
+      return;
+    }
+
+    if (currentEditFinancialYearIndex !== null) {
+      // Edit mode
+      const oldYear = settings.financialYears[currentEditFinancialYearIndex];
+      if (yearName !== oldYear && settings.financialYears.includes(yearName)) {
+        alert("This financial year already exists!");
+        return;
+      }
+      settings.financialYears[currentEditFinancialYearIndex] = yearName;
+      await ipcRenderer.invoke("update-settings", settings);
+
+      renderFinancialYears();
+      populateFinancialYearDropdowns();
+      closeModal("financial-year-modal");
+      alert("✅ Financial year updated!");
+    } else {
+      // Add mode
+      if (settings.financialYears.includes(yearName)) {
+        alert("This financial year already exists!");
+        return;
+      }
+
+      settings.financialYears.push(yearName);
+      await ipcRenderer.invoke("update-settings", settings);
+
+      renderFinancialYears();
+      populateFinancialYearDropdowns();
+      closeModal("financial-year-modal");
+      alert("✅ Financial year added!");
+    }
+  });
+
+async function deleteFinancialYear(index) {
+  const yearToDelete = settings.financialYears[index];
+
+  // Check if any connection is using this financial year
+  const connectionsUsingYear = connections.filter(
+    (conn) => conn.financialYear === yearToDelete
+  );
+
+  if (connectionsUsingYear.length > 0) {
+    alert(
+      `❌ Cannot delete! This financial year is being used by ${
+        connectionsUsingYear.length
+      } connection(s):\n\n${connectionsUsingYear
+        .map((c) => `• ${c.name}`)
+        .join("\n")}\n\nPlease remove or change these connections first.`
+    );
+    return;
+  }
+
+  if (!confirm(`Delete financial year "${yearToDelete}"?`)) return;
+
+  settings.financialYears.splice(index, 1);
+  await ipcRenderer.invoke("update-settings", settings);
+
+  renderFinancialYears();
+  populateFinancialYearDropdowns();
+  alert("✅ Financial year deleted!");
+}
+
+// Partner Modal
+let currentEditPartnerIndex = null;
+
+document.getElementById("add-partner-btn").addEventListener("click", () => {
+  currentEditPartnerIndex = null;
+  document.getElementById("partner-modal").querySelector("h3").textContent =
+    "Add Partner";
+  document.getElementById("partner-form").reset();
+  openModal("partner-modal");
+});
+
+function editPartner(index) {
+  currentEditPartnerIndex = index;
+  document.getElementById("partner-modal").querySelector("h3").textContent =
+    "Edit Partner";
+  document.getElementById("partner-name").value = settings.partners[index];
+  openModal("partner-modal");
+}
+
+document
+  .getElementById("partner-form")
+  .addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const partnerName = document.getElementById("partner-name").value.trim();
+
+    if (!partnerName) {
+      alert("Please enter a partner name!");
+      return;
+    }
+
+    if (currentEditPartnerIndex !== null) {
+      // Edit mode
+      const oldPartner = settings.partners[currentEditPartnerIndex];
+      if (
+        partnerName !== oldPartner &&
+        settings.partners.includes(partnerName)
+      ) {
+        alert("This partner already exists!");
+        return;
+      }
+      settings.partners[currentEditPartnerIndex] = partnerName;
+      await ipcRenderer.invoke("update-settings", settings);
+
+      renderPartners();
+      populatePartnerDropdowns();
+      closeModal("partner-modal");
+      alert("✅ Partner updated!");
+    } else {
+      // Add mode
+      if (settings.partners.includes(partnerName)) {
+        alert("This partner already exists!");
+        return;
+      }
+
+      settings.partners.push(partnerName);
+      await ipcRenderer.invoke("update-settings", settings);
+
+      renderPartners();
+      populatePartnerDropdowns();
+      closeModal("partner-modal");
+      alert("✅ Partner added!");
+    }
+  });
+
+async function deletePartner(index) {
+  const partnerToDelete = settings.partners[index];
+
+  // Check if any connection is using this partner
+  const connectionsUsingPartner = connections.filter(
+    (conn) => conn.group === "partner" && conn.partner === partnerToDelete
+  );
+
+  if (connectionsUsingPartner.length > 0) {
+    alert(
+      `❌ Cannot delete! This partner is being used by ${
+        connectionsUsingPartner.length
+      } connection(s):\n\n${connectionsUsingPartner
+        .map((c) => `• ${c.name}`)
+        .join("\n")}\n\nPlease remove or change these connections first.`
+    );
+    return;
+  }
+
+  if (!confirm(`Delete partner "${partnerToDelete}"?`)) return;
+
+  settings.partners.splice(index, 1);
+  await ipcRenderer.invoke("update-settings", settings);
+
+  renderPartners();
+  populatePartnerDropdowns();
+  alert("✅ Partner deleted!");
+}
+
+// Group radio buttons - show/hide partner dropdown
+document.getElementById("conn-group-self").addEventListener("change", () => {
+  document.getElementById("conn-partner-group").style.display = "none";
+  document.getElementById("conn-partner").removeAttribute("required");
+});
+
+document.getElementById("conn-group-partner").addEventListener("change", () => {
+  document.getElementById("conn-partner-group").style.display = "block";
+  document.getElementById("conn-partner").setAttribute("required", "required");
+});
+
+// ===== BULK UPLOAD =====
+document.getElementById("bulk-upload-btn").addEventListener("click", () => {
+  document.getElementById("bulk-upload-form").reset();
+  document.getElementById("bulk-upload-preview").innerHTML = "";
+  openModal("bulk-upload-modal");
+});
+
+// Download Template Button
+document
+  .getElementById("download-template-btn")
+  .addEventListener("click", () => {
+    const csvContent = `name,server,database,user,password,port,financialYear,group,partner
+Production Server,prod.example.com,ProductionDB,sa,SecurePass123,1433,2024-2025,self,
+Test Server,test.example.com,TestDB,sa,TestPass456,1433,2024-2025,self,
+Partner Server 1,partner1.com,PartnerDB1,sa,PartnerPass1,1433,2024-2025,partner,Partner A
+Partner Server 2,partner2.com,PartnerDB2,sa,PartnerPass2,1433,2024-2025,partner,Partner B`;
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+
+    link.setAttribute("href", url);
+    link.setAttribute("download", "connection_template.csv");
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    alert("✅ Template downloaded successfully!");
+  });
+
+let bulkUploadData = [];
+
+document
+  .getElementById("bulk-upload-file")
+  .addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const rows = text
+        .split("\n")
+        .map((row) => row.trim())
+        .filter((row) => row);
+
+      if (rows.length < 2) {
+        alert("File must have at least a header row and one data row");
+        return;
+      }
+
+      const headers = rows[0].split(",").map((h) => h.trim());
+      bulkUploadData = [];
+
+      for (let i = 1; i < rows.length; i++) {
+        const values = rows[i].split(",").map((v) => v.trim());
+        const conn = {};
+
+        headers.forEach((header, index) => {
+          conn[header] = values[index] || "";
+        });
+
+        bulkUploadData.push(conn);
+      }
+
+      // Show preview
+      const preview = document.getElementById("bulk-upload-preview");
+      preview.innerHTML = `
+      <p style="margin-bottom: 12px; font-weight: 600;">Preview (${
+        bulkUploadData.length
+      } connections):</p>
+      <table style="width: 100%; border-collapse: collapse; font-size: 12px;">
+        <thead>
+          <tr>
+            ${headers
+              .map(
+                (h) =>
+                  `<th style="padding: 6px; border: 1px solid var(--gray-200); background: var(--gray-100);">${escapeHtml(
+                    h
+                  )}</th>`
+              )
+              .join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${bulkUploadData
+            .slice(0, 5)
+            .map(
+              (conn) => `
+            <tr>
+              ${headers
+                .map(
+                  (h) =>
+                    `<td style="padding: 6px; border: 1px solid var(--gray-200);">${escapeHtml(
+                      conn[h] || ""
+                    )}</td>`
+                )
+                .join("")}
+            </tr>
+          `
+            )
+            .join("")}
+          ${
+            bulkUploadData.length > 5
+              ? `<tr><td colspan="${
+                  headers.length
+                }" style="text-align: center; padding: 6px; font-style: italic; color: var(--gray-500);">... and ${
+                  bulkUploadData.length - 5
+                } more</td></tr>`
+              : ""
+          }
+        </tbody>
+      </table>
+    `;
+    } catch (error) {
+      alert("Error reading file: " + error.message);
+    }
+  });
+
+document
+  .getElementById("bulk-upload-form")
+  .addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    if (bulkUploadData.length === 0) {
+      alert("No data to upload");
+      return;
+    }
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const connData of bulkUploadData) {
+      try {
+        const connection = {
+          id: `conn_${Date.now()}_${Math.random()}`,
+          name: connData.name || "Unnamed",
+          server: connData.server || "localhost",
+          database: connData.database || "",
+          user: connData.user || undefined,
+          password: connData.password || undefined,
+          port: parseInt(connData.port) || 1433,
+          financialYear: connData.financialYear || "",
+          group: connData.group || "self",
+          partner: connData.partner || "",
+          options: {
+            trustServerCertificate: true,
+          },
+          createdAt: new Date(),
+        };
+
+        await ipcRenderer.invoke("add-connection", connection);
+        successCount++;
+      } catch (error) {
+        errorCount++;
+        console.error("Error adding connection:", error);
+      }
+    }
+
+    closeModal("bulk-upload-modal");
+    loadConnections();
+    alert(
+      `✅ Bulk upload complete!\n${successCount} connections added, ${errorCount} failed.`
+    );
+  });
+
+// ===== TEST ALL CONNECTIONS =====
+document
+  .getElementById("test-all-connections-btn")
+  .addEventListener("click", async () => {
+    if (connections.length === 0) {
+      alert("No connections to test");
+      return;
+    }
+
+    if (!confirm(`Test all ${connections.length} connections?`)) return;
+
+    const btn = document.getElementById("test-all-connections-btn");
+    btn.disabled = true;
+    btn.textContent = "Testing...";
+
+    let online = 0;
+    let offline = 0;
+    const results = [];
+
+    for (const conn of connections) {
+      try {
+        const result = await ipcRenderer.invoke("test-connection", conn.id);
+        if (result.success) {
+          online++;
+          results.push(`✅ ${conn.name}: Online`);
+          await ipcRenderer.invoke("update-connection", conn.id, {
+            lastTested: new Date(),
+          });
+        } else {
+          offline++;
+          results.push(`❌ ${conn.name}: ${result.message}`);
+        }
+      } catch (error) {
+        offline++;
+        results.push(`❌ ${conn.name}: ${error.message}`);
+      }
+    }
+
+    btn.disabled = false;
+    btn.innerHTML = `<img src="../icon/refresh-ccw.svg" style="width: 16px; height: 16px; vertical-align: middle; margin-right: 6px;"/> Test All`;
+
+    loadConnections();
+    alert(
+      `Test Results:\n\n${online} Online\n${offline} Offline\n\n` +
+        results.join("\n")
+    );
+  });
+
 // ===== INITIAL LOAD =====
 loadConnections();
+loadSettings();

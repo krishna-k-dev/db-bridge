@@ -1167,3 +1167,92 @@ dialog .dialog-body {
     grid-template-columns: 1fr;
   }
 }
+
+/* Settings Page Styles */
+.settings-card {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.settings-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: var(--gray-50);
+  border-radius: 8px;
+  border: 1px solid var(--gray-200);
+}
+
+.settings-list-item-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--gray-900);
+}
+
+.settings-list-item-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.settings-list-item button {
+  padding: 4px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.settings-list-item .btn-danger {
+  background: var(--danger);
+  color: white;
+}
+
+.settings-list-item .btn-danger:hover {
+  background: #dc2626;
+}
+
+/* Radio Label Styles */
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--gray-700);
+}
+
+.radio-label input[type="radio"] {
+  cursor: pointer;
+}
+
+/* Bulk Upload Preview */
+#bulk-upload-preview {
+  font-size: 13px;
+}
+
+#bulk-upload-preview table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+#bulk-upload-preview th,
+#bulk-upload-preview td {
+  padding: 8px;
+  text-align: left;
+  border: 1px solid var(--gray-200);
+}
+
+#bulk-upload-preview th {
+  background: var(--gray-100);
+  font-weight: 600;
+}

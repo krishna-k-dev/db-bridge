@@ -10,7 +10,8 @@
     "watch": "tsc --watch",
     "build-icon": "node build-icon.js",
     "package": "npm run build && npm run build-icon && electron-builder --win --x64",
-    "dist": "npm run build && electron-packager . \"SQL Bridge\" --platform=win32 --arch=x64 --out=distributable --overwrite --prune=true --icon=build/icon.ico"
+    "dist": "npm run build && electron-packager . \"SQL Bridge\" --platform=win32 --arch=x64 --out=distributable --overwrite --prune=true --icon=build/icon.ico",
+    "dist-win": "electron-builder --windows"
   },
   "keywords": [
     "sql",
@@ -64,8 +65,11 @@
       }
     ],
     "win": {
-      "target": "dir",
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "target": "nsis",
+      "publisherName": "Krishna Kumar",
+      "certificateFile": "C:/Users/user/Desktop/cert/KrishnaKumar_Cert.pfx",
+      "certificatePassword": "krishna@123"
     }
   }
 }

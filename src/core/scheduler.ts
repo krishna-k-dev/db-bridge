@@ -343,4 +343,50 @@ export class JobScheduler {
 
     return await this.executor.testConnection(connection);
   }
+
+  getSettings(): any {
+    try {
+      if (!fs.existsSync(this.configPath)) {
+        return { financialYears: [], partners: [] };
+      }
+
+      const configData = fs.readFileSync(this.configPath, "utf-8");
+      const config: any = JSON.parse(configData);
+
+      return {
+        financialYears: config.settings?.financialYears || [],
+        partners: config.settings?.partners || [],
+      };
+    } catch (error: any) {
+      logger.error("Failed to get settings", undefined, error);
+      return { financialYears: [], partners: [] };
+    }
+  }
+
+  updateSettings(settings: any): void {
+    try {
+      const configDir = path.dirname(this.configPath);
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true });
+      }
+
+      let config: any = {
+        connections: this.connections,
+        jobs: this.jobs,
+      };
+
+      if (fs.existsSync(this.configPath)) {
+        const configData = fs.readFileSync(this.configPath, "utf-8");
+        config = JSON.parse(configData);
+      }
+
+      config.settings = settings;
+
+      fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2));
+      logger.info("Settings saved");
+    } catch (error: any) {
+      logger.error("Failed to save settings", undefined, error);
+      throw error;
+    }
+  }
 }

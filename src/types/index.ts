@@ -8,6 +8,9 @@ export interface SQLConnection {
   user?: string;
   password?: string;
   port?: number;
+  financialYear?: string;
+  group?: "self" | "partner";
+  partner?: string;
   options?: {
     trustServerCertificate?: boolean;
     encrypt?: boolean;

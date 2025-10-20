@@ -149,3 +149,13 @@ ipcMain.handle("test-connection", async (_event, connectionId: string) => {
     return { success: false, message: error.message };
   }
 });
+
+// Settings Handlers
+ipcMain.handle("get-settings", () => {
+  return scheduler.getSettings();
+});
+
+ipcMain.handle("update-settings", (_event, settings: any) => {
+  scheduler.updateSettings(settings);
+  return { success: true };
+});

@@ -138,7 +138,11 @@ export class JobExecutor {
               rowCount: data.length,
               connectionId: connection.id,
               connectionName: connection.name,
-            };
+              financialYear: connection.financialYear || "",
+              group: connection.group || "self",
+              partner:
+                connection.group === "partner" ? connection.partner || "" : "",
+            } as any;
 
             const result = await adapter.send(data, destination, meta);
 

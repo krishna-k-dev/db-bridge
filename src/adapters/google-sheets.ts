@@ -43,7 +43,20 @@ export class GoogleSheetsAdapter implements DestinationAdapter {
 
       // Create/update a sheet for each connection
       for (const { connection, data } of dataWithMeta) {
-        const sheetName = connection.name;
+        // Format: ConnectionName-FinancialYear-Group-PartnerName
+        let sheetName = connection.name;
+        if (connection.financialYear) {
+          sheetName += `-${connection.financialYear}`;
+        }
+        if (connection.group) {
+          sheetName += `-${connection.group}`;
+          if (connection.group === "partner" && connection.partner) {
+            sheetName += `-${connection.partner}`;
+          }
+        }
+        // Truncate to 100 chars for Google Sheets limit
+        sheetName = sheetName.substring(0, 100);
+
         const headers = data.length > 0 ? Object.keys(data[0]) : [];
         const values = data.map((row: any) =>
           headers.map((header) => row[header] ?? "")

@@ -21,10 +21,13 @@ export class CustomAPIAdapter implements DestinationAdapter {
 
       // Combine all data into one array with connection name (MUST) and other metadata
       const combinedPayload = dataWithMeta.map(({ connection, data }) => ({
-        connectionName: connection.name, // MUST - Connection name
-        connectionId: connection.id, // Optional - Connection ID
-        database: connection.database, // Optional - Database name
-        server: connection.server, // Optional - Server name
+        connectionName: connection.name, // Connection name
+        connectionId: connection.id, // Connection ID
+        database: connection.database, // Database name
+        server: connection.server, // Server name
+        financialYear: connection.financialYear || "", // Financial Year
+        group: connection.group || "self", // Group (self/partner)
+        partner: connection.group === "partner" ? connection.partner || "" : "", // Partner name if group is partner
         rowCount: data.length, // Row count for this connection
         data: data, // Actual data array
       }));

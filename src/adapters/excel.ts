@@ -75,7 +75,18 @@ export class ExcelAdapter implements DestinationAdapter {
       // Create a sheet for each connection
       let totalRows = 0;
       for (const { connection, data } of dataWithMeta) {
-        const sheetName = this.sanitizeSheetName(connection.name);
+        // Format: ConnectionName-FinancialYear-Group-PartnerName
+        let sheetName = connection.name;
+        if (connection.financialYear) {
+          sheetName += `-${connection.financialYear}`;
+        }
+        if (connection.group) {
+          sheetName += `-${connection.group}`;
+          if (connection.group === "partner" && connection.partner) {
+            sheetName += `-${connection.partner}`;
+          }
+        }
+        sheetName = this.sanitizeSheetName(sheetName);
 
         // In append mode, merge with existing sheet if it exists
         if (mode === "append" && workbook.SheetNames.includes(sheetName)) {
