@@ -18,14 +18,13 @@ function createSplash(): void {
     transparent: false,
     backgroundColor: "#667eea",
     show: true,
-    icon: path.join(app.getAppPath(), "build/icon.ico"),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
     },
   });
 
-  splash.loadFile(path.join(app.getAppPath(), "src/renderer/splash.html"));
+  splash.loadFile(path.join(__dirname, "../splash.html"));
 
   splash.on("closed", () => {
     splash = null;
@@ -38,8 +37,8 @@ function createWindow(): void {
     height: 800,
     frame: false, // frameless mat rakho jab tak zarurat na ho
     transparent: false, // transparent false rakho
+    backgroundColor: "#6366f1", // Logo color (indigo)
     show: false, // Don't show until ready
-    icon: path.join(app.getAppPath(), "build/icon.ico"),
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -48,15 +47,22 @@ function createWindow(): void {
 
   // Enable remote for this window
   remoteMain.enable(mainWindow.webContents);
-  mainWindow.loadFile(path.join(app.getAppPath(), "src/renderer/index.html"));
+
+  // Load from Vite dev server in development, otherwise from built files
+  if (process.env.NODE_ENV === "development") {
+    mainWindow.loadURL("http://localhost:5173");
+  } else {
+    mainWindow.loadFile(
+      path.join(__dirname, "../renderer-react/dist/index.html")
+    );
+  }
+
   mainWindow.webContents.once("did-finish-load", () => {
-    setTimeout(() => {
-      if (splash) {
-        splash.close();
-        splash = null;
-      }
-      mainWindow!.show();
-    }, 2000); // 2000 milliseconds = 2 seconds
+    if (splash) {
+      splash.close();
+      splash = null;
+    }
+    mainWindow!.show();
   });
 
   mainWindow.on("closed", () => {
@@ -64,9 +70,9 @@ function createWindow(): void {
   });
 
   // Open DevTools in development
-  // if (process.env.NODE_ENV === "development") {
-  //   mainWindow.webContents.openDevTools();
-  // }
+  if (process.env.NODE_ENV === "development") {
+    mainWindow.webContents.openDevTools();
+  }
 }
 
 app.whenReady().then(() => {

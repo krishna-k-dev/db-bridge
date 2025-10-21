@@ -16,7 +16,11 @@ export class ExcelAdapter implements DestinationAdapter {
 
   // Multi-connection support: Create multiple sheets in one file
   async sendMultiConnection(
-    dataWithMeta: Array<{ connection: any; data: any[] }>,
+    dataWithMeta: Array<{
+      connection: any;
+      data: any[];
+      connectionFailedMessage?: string;
+    }>,
     config: ExcelDestination,
     meta: { jobId: string; jobName: string; runTime: Date }
   ): Promise<SendResult> {
@@ -74,7 +78,11 @@ export class ExcelAdapter implements DestinationAdapter {
 
       // Create a sheet for each connection
       let totalRows = 0;
-      for (const { connection, data } of dataWithMeta) {
+      for (const {
+        connection,
+        data,
+        connectionFailedMessage,
+      } of dataWithMeta) {
         // Format: ConnectionName-FinancialYear-Group-PartnerName
         let sheetName = connection.name;
         if (connection.financialYear) {
@@ -88,11 +96,26 @@ export class ExcelAdapter implements DestinationAdapter {
         }
         sheetName = this.sanitizeSheetName(sheetName);
 
+        let sheetData: any[];
+
+        if (connectionFailedMessage) {
+          // For failed connections, create a row with error message
+          sheetData = [
+            {
+              connectionName: connection.name,
+              connectionFailedMessage: connectionFailedMessage,
+              data: "[]",
+            },
+          ];
+        } else {
+          sheetData = data;
+        }
+
         // In append mode, merge with existing sheet if it exists
         if (mode === "append" && workbook.SheetNames.includes(sheetName)) {
           const existingSheet = workbook.Sheets[sheetName];
           const existingData = XLSX.utils.sheet_to_json(existingSheet);
-          const mergedData = [...existingData, ...data];
+          const mergedData = [...existingData, ...sheetData];
 
           // Remove old sheet and add merged one
           delete workbook.Sheets[sheetName];
@@ -105,7 +128,7 @@ export class ExcelAdapter implements DestinationAdapter {
           XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
         } else {
           // Create new sheet (replace mode or sheet doesn't exist)
-          const worksheet = XLSX.utils.json_to_sheet(data);
+          const worksheet = XLSX.utils.json_to_sheet(sheetData);
 
           // If sheet already exists in workbook, remove it first
           if (workbook.SheetNames.includes(sheetName)) {
@@ -119,7 +142,7 @@ export class ExcelAdapter implements DestinationAdapter {
           XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
         }
 
-        totalRows += data.length;
+        totalRows += sheetData.length;
       }
 
       // Write file

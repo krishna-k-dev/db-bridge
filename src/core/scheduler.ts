@@ -9,6 +9,7 @@ import { logger } from "./logger";
 export class JobScheduler {
   private jobs: Job[] = [];
   private connections: SQLConnection[] = [];
+  private settings: any = {};
   private tasks: Map<string, cron.ScheduledTask> = new Map();
   private executor: JobExecutor;
   private configPath: string;
@@ -39,7 +40,7 @@ export class JobScheduler {
       const config: AppConfig = JSON.parse(configData);
       this.connections = config.connections || [];
       this.jobs = config.jobs || [];
-
+      this.settings = config.settings || {};
       logger.info(
         `Loaded ${this.connections.length} connections and ${this.jobs.length} jobs from config`
       );
@@ -59,6 +60,7 @@ export class JobScheduler {
       const config: AppConfig = {
         connections: this.connections,
         jobs: this.jobs,
+        settings: this.getSettings(),
       };
       fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2));
 
@@ -332,6 +334,28 @@ export class JobScheduler {
     logger.info(`Deleted connection: ${connectionId}`);
   }
 
+  duplicateConnection(connectionId: string): SQLConnection {
+    const originalConnection = this.getConnection(connectionId);
+
+    if (!originalConnection) {
+      throw new Error(`Connection not found: ${connectionId}`);
+    }
+
+    // Create a duplicate with a new ID and modified name
+    const duplicatedConnection: SQLConnection = {
+      ...originalConnection,
+      id: `conn_${Date.now()}`,
+      name: `${originalConnection.name} (Copy)`,
+    };
+
+    this.addConnection(duplicatedConnection);
+    logger.info(
+      `Duplicated connection: ${connectionId} -> ${duplicatedConnection.id}`
+    );
+
+    return duplicatedConnection;
+  }
+
   async testConnection(
     connectionId: string
   ): Promise<{ success: boolean; message: string }> {
@@ -373,6 +397,7 @@ export class JobScheduler {
       let config: any = {
         connections: this.connections,
         jobs: this.jobs,
+        settings: this.settings,
       };
 
       if (fs.existsSync(this.configPath)) {
@@ -386,6 +411,258 @@ export class JobScheduler {
       logger.info("Settings saved");
     } catch (error: any) {
       logger.error("Failed to save settings", undefined, error);
+      throw error;
+    }
+  }
+
+  // Financial Years Management
+  getFinancialYears(): any[] {
+    try {
+      if (!fs.existsSync(this.configPath)) {
+        return [];
+      }
+
+      const configData = fs.readFileSync(this.configPath, "utf-8");
+      const config: any = JSON.parse(configData);
+
+      return config.settings?.financialYears || [];
+    } catch (error: any) {
+      logger.error("Failed to get financial years", undefined, error);
+      return [];
+    }
+  }
+
+  createFinancialYear(year: string): any {
+    try {
+      const configDir = path.dirname(this.configPath);
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true });
+      }
+
+      let config: any = {
+        connections: this.connections,
+        jobs: this.jobs,
+        settings: this.settings,
+      };
+
+      if (fs.existsSync(this.configPath)) {
+        const configData = fs.readFileSync(this.configPath, "utf-8");
+        config = JSON.parse(configData);
+      }
+
+      if (!config.settings) config.settings = {};
+      if (!config.settings.financialYears) config.settings.financialYears = [];
+
+      const newFinancialYear = {
+        id: Date.now().toString(),
+        year: year,
+      };
+
+      config.settings.financialYears.push(newFinancialYear);
+
+      fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2));
+      logger.info(`Financial year ${year} created`);
+      return newFinancialYear;
+    } catch (error: any) {
+      logger.error("Failed to create financial year", undefined, error);
+      throw error;
+    }
+  }
+
+  updateFinancialYear(id: string, updates: any): void {
+    try {
+      const configDir = path.dirname(this.configPath);
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true });
+      }
+
+      let config: any = {
+        connections: this.connections,
+        jobs: this.jobs,
+        settings: this.settings,
+      };
+
+      if (fs.existsSync(this.configPath)) {
+        const configData = fs.readFileSync(this.configPath, "utf-8");
+        config = JSON.parse(configData);
+      }
+
+      if (!config.settings) config.settings = {};
+      if (!config.settings.financialYears) config.settings.financialYears = [];
+
+      const index = config.settings.financialYears.findIndex(
+        (fy: any) => fy.id === id
+      );
+      if (index !== -1) {
+        config.settings.financialYears[index] = {
+          ...config.settings.financialYears[index],
+          ...updates,
+        };
+        fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2));
+        logger.info(`Financial year ${id} updated`);
+      } else {
+        throw new Error("Financial year not found");
+      }
+    } catch (error: any) {
+      logger.error("Failed to update financial year", undefined, error);
+      throw error;
+    }
+  }
+
+  deleteFinancialYear(id: string): void {
+    try {
+      const configDir = path.dirname(this.configPath);
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true });
+      }
+
+      let config: any = {
+        connections: this.connections,
+        jobs: this.jobs,
+        settings: this.settings,
+      };
+
+      if (fs.existsSync(this.configPath)) {
+        const configData = fs.readFileSync(this.configPath, "utf-8");
+        config = JSON.parse(configData);
+      }
+
+      if (!config.settings) config.settings = {};
+      if (!config.settings.financialYears) config.settings.financialYears = [];
+
+      config.settings.financialYears = config.settings.financialYears.filter(
+        (fy: any) => fy.id !== id
+      );
+
+      fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2));
+      logger.info(`Financial year ${id} deleted`);
+    } catch (error: any) {
+      logger.error("Failed to delete financial year", undefined, error);
+      throw error;
+    }
+  }
+
+  // Partners Management
+  getPartners(): any[] {
+    try {
+      if (!fs.existsSync(this.configPath)) {
+        return [];
+      }
+
+      const configData = fs.readFileSync(this.configPath, "utf-8");
+      const config: any = JSON.parse(configData);
+
+      return config.settings?.partners || [];
+    } catch (error: any) {
+      logger.error("Failed to get partners", undefined, error);
+      return [];
+    }
+  }
+
+  createPartner(name: string): any {
+    try {
+      const configDir = path.dirname(this.configPath);
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true });
+      }
+
+      let config: any = {
+        connections: this.connections,
+        jobs: this.jobs,
+        settings: this.settings,
+      };
+
+      if (fs.existsSync(this.configPath)) {
+        const configData = fs.readFileSync(this.configPath, "utf-8");
+        config = JSON.parse(configData);
+      }
+
+      if (!config.settings) config.settings = {};
+      if (!config.settings.partners) config.settings.partners = [];
+
+      const newPartner = {
+        id: Date.now().toString(),
+        name: name,
+      };
+
+      config.settings.partners.push(newPartner);
+
+      fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2));
+      logger.info(`Partner ${name} created`);
+      return newPartner;
+    } catch (error: any) {
+      logger.error("Failed to create partner", undefined, error);
+      throw error;
+    }
+  }
+
+  updatePartner(id: string, updates: any): void {
+    try {
+      const configDir = path.dirname(this.configPath);
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true });
+      }
+
+      let config: any = {
+        connections: this.connections,
+        jobs: this.jobs,
+        settings: this.settings,
+      };
+
+      if (fs.existsSync(this.configPath)) {
+        const configData = fs.readFileSync(this.configPath, "utf-8");
+        config = JSON.parse(configData);
+      }
+
+      if (!config.settings) config.settings = {};
+      if (!config.settings.partners) config.settings.partners = [];
+
+      const index = config.settings.partners.findIndex((p: any) => p.id === id);
+      if (index !== -1) {
+        config.settings.partners[index] = {
+          ...config.settings.partners[index],
+          ...updates,
+        };
+        fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2));
+        logger.info(`Partner ${id} updated`);
+      } else {
+        throw new Error("Partner not found");
+      }
+    } catch (error: any) {
+      logger.error("Failed to update partner", undefined, error);
+      throw error;
+    }
+  }
+
+  deletePartner(id: string): void {
+    try {
+      const configDir = path.dirname(this.configPath);
+      if (!fs.existsSync(configDir)) {
+        fs.mkdirSync(configDir, { recursive: true });
+      }
+
+      let config: any = {
+        connections: this.connections,
+        jobs: this.jobs,
+        settings: this.settings,
+      };
+
+      if (fs.existsSync(this.configPath)) {
+        const configData = fs.readFileSync(this.configPath, "utf-8");
+        config = JSON.parse(configData);
+      }
+
+      if (!config.settings) config.settings = {};
+      if (!config.settings.partners) config.settings.partners = [];
+
+      config.settings.partners = config.settings.partners.filter(
+        (p: any) => p.id !== id
+      );
+
+      fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2));
+      logger.info(`Partner ${id} deleted`);
+    } catch (error: any) {
+      logger.error("Failed to delete partner", undefined, error);
       throw error;
     }
   }

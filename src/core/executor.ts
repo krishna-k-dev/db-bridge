@@ -27,6 +27,7 @@ export class JobExecutor {
     const dataWithMeta: Array<{
       connection: SQLConnection;
       data: any[];
+      connectionFailedMessage?: string;
     }> = [];
 
     for (const connection of connections) {
@@ -47,7 +48,12 @@ export class JobExecutor {
           job.id,
           error
         );
-        // Continue with other connections even if one fails
+        // Include failed connection with error message
+        dataWithMeta.push({
+          connection,
+          data: [],
+          connectionFailedMessage: error.message,
+        });
       } finally {
         await connector.disconnect();
       }

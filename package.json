@@ -7,10 +7,12 @@
     "build": "tsc",
     "start": "npm run build && electron .",
     "dev": "tsc && electronmon .",
+    "dev:electron": "cross-env NODE_ENV=development npm run build && cross-env NODE_ENV=development electron .",
+    "dev:full": "concurrently \"cd renderer-react && npm run dev\" \"npm run dev:electron\"",
     "watch": "tsc --watch",
     "build-icon": "node build-icon.js",
     "package": "npm run build && npm run build-icon && electron-builder --win --x64",
-    "dist": "npm run build && electron-packager . \"SQL Bridge\" --platform=win32 --arch=x64 --out=distributable --overwrite --prune=true --icon=build/icon.ico",
+    "dist": "npm run build && npm run build-icon && electron-builder --win --x64",
     "dist-win": "electron-builder --windows"
   },
   "keywords": [
@@ -25,6 +27,8 @@
     "@types/mssql": "^9.1.8",
     "@types/node": "^20.19.21",
     "@types/node-cron": "^3.0.11",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
     "electron": "^38.2.2",
     "electron-builder": "^24.13.3",
     "electron-packager": "^17.1.2",
@@ -36,9 +40,14 @@
   "dependencies": {
     "@electron/remote": "^2.1.3",
     "axios": "^1.6.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
     "googleapis": "^129.0.0",
+    "lucide-react": "^0.546.0",
     "mssql": "^12.0.0",
     "node-cron": "^3.0.3",
+    "tailwind-merge": "^3.3.1",
+    "tailwindcss-animate": "^1.0.7",
     "xlsx": "^0.18.5"
   },
   "build": {
@@ -47,13 +56,16 @@
     "directories": {
       "output": "release"
     },
+    "compression": "maximum",
     "files": [
       "dist/**/*",
       "src/renderer/**/*",
       "src/icon/**/*",
       "!src/**/*.ts",
       "!*.md",
-      "!.gitignore"
+      "!renderer-react/**/*",
+      "!.gitignore",
+      "!renderer-old/**/*"
     ],
     "extraResources": [
       {
@@ -66,7 +78,7 @@
     ],
     "win": {
       "icon": "build/icon.ico",
-      "target": "nsis",
+      "target": "portable",
       "publisherName": "Krishna Kumar",
       "certificateFile": "C:/Users/user/Desktop/cert/KrishnaKumar_Cert.pfx",
       "certificatePassword": "krishna@123"

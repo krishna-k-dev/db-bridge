@@ -34,6 +34,14 @@ export interface Job {
   destinations: Destination[];
 }
 
+export interface AppSettings {
+  defaultQueryTimeout?: number; // in seconds
+  defaultConnectionTimeout?: number; // in seconds
+  partners: string[]; // list of partner names
+  financialYears: string[]; // list of financial years
+  [key: string]: any;
+}
+
 export interface Destination {
   type: string; // 'webhook' | 'google_sheets' | 'custom_api'
   [key: string]: any;
@@ -100,7 +108,11 @@ export interface DestinationAdapter {
   send(data: any[], config: Destination, meta: JobMeta): Promise<SendResult>;
   // Optional: Multi-connection support
   sendMultiConnection?(
-    dataWithMeta: Array<{ connection: any; data: any[] }>,
+    dataWithMeta: Array<{
+      connection: any;
+      data: any[];
+      connectionFailedMessage?: string;
+    }>,
     config: Destination,
     meta: { jobId: string; jobName: string; runTime: Date }
   ): Promise<SendResult>;
@@ -109,6 +121,7 @@ export interface DestinationAdapter {
 export interface AppConfig {
   connections: SQLConnection[];
   jobs: Job[];
+  settings: AppSettings;
 }
 
 export interface LogEntry {

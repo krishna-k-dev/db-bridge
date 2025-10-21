@@ -12,7 +12,11 @@ export class CustomAPIAdapter implements DestinationAdapter {
 
   // Multi-connection support: Send combined array with connection info
   async sendMultiConnection(
-    dataWithMeta: Array<{ connection: any; data: any[] }>,
+    dataWithMeta: Array<{
+      connection: any;
+      data: any[];
+      connectionFailedMessage?: string;
+    }>,
     config: CustomAPIDestination,
     meta: { jobId: string; jobName: string; runTime: Date }
   ): Promise<SendResult> {
@@ -20,17 +24,21 @@ export class CustomAPIAdapter implements DestinationAdapter {
       const method = config.method || "POST";
 
       // Combine all data into one array with connection name (MUST) and other metadata
-      const combinedPayload = dataWithMeta.map(({ connection, data }) => ({
-        connectionName: connection.name, // Connection name
-        connectionId: connection.id, // Connection ID
-        database: connection.database, // Database name
-        server: connection.server, // Server name
-        financialYear: connection.financialYear || "", // Financial Year
-        group: connection.group || "self", // Group (self/partner)
-        partner: connection.group === "partner" ? connection.partner || "" : "", // Partner name if group is partner
-        rowCount: data.length, // Row count for this connection
-        data: data, // Actual data array
-      }));
+      const combinedPayload = dataWithMeta.map(
+        ({ connection, data, connectionFailedMessage }) => ({
+          connectionName: connection.name, // Connection name
+          connectionId: connection.id, // Connection ID
+          database: connection.database, // Database name
+          server: connection.server, // Server name
+          financialYear: connection.financialYear || "", // Financial Year
+          group: connection.group || "self", // Group (self/partner)
+          partner:
+            connection.group === "partner" ? connection.partner || "" : "", // Partner name if group is partner
+          rowCount: data.length, // Row count for this connection
+          connectionFailedMessage: connectionFailedMessage || "", // Connection failed message
+          data: data, // Actual data array
+        })
+      );
 
       await axios({
         method,

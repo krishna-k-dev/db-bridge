@@ -13,7 +13,11 @@ export class GoogleSheetsAdapter implements DestinationAdapter {
 
   // Multi-connection support: Create multiple sheets in one spreadsheet
   async sendMultiConnection(
-    dataWithMeta: Array<{ connection: any; data: any[] }>,
+    dataWithMeta: Array<{
+      connection: any;
+      data: any[];
+      connectionFailedMessage?: string;
+    }>,
     config: GoogleSheetsDestination,
     meta: { jobId: string; jobName: string; runTime: Date }
   ): Promise<SendResult> {
@@ -42,7 +46,11 @@ export class GoogleSheetsAdapter implements DestinationAdapter {
       let totalRows = 0;
 
       // Create/update a sheet for each connection
-      for (const { connection, data } of dataWithMeta) {
+      for (const {
+        connection,
+        data,
+        connectionFailedMessage,
+      } of dataWithMeta) {
         // Format: ConnectionName-FinancialYear-Group-PartnerName
         let sheetName = connection.name;
         if (connection.financialYear) {
@@ -57,10 +65,20 @@ export class GoogleSheetsAdapter implements DestinationAdapter {
         // Truncate to 100 chars for Google Sheets limit
         sheetName = sheetName.substring(0, 100);
 
-        const headers = data.length > 0 ? Object.keys(data[0]) : [];
-        const values = data.map((row: any) =>
-          headers.map((header) => row[header] ?? "")
-        );
+        let headers: string[];
+        let values: any[][];
+
+        if (connectionFailedMessage) {
+          // For failed connections, create a simple structure with the error message
+          headers = ["connectionName", "connectionFailedMessage", "data"];
+          values = [[connection.name, connectionFailedMessage, "[]"]];
+        } else {
+          // Normal case
+          headers = data.length > 0 ? Object.keys(data[0]) : [];
+          values = data.map((row: any) =>
+            headers.map((header) => row[header] ?? "")
+          );
+        }
 
         // Ensure sheet exists
         await this.ensureSheetExists(sheets, config.spreadsheetId, sheetName);
@@ -77,7 +95,7 @@ export class GoogleSheetsAdapter implements DestinationAdapter {
                 jobId: meta.jobId,
                 jobName: meta.jobName,
                 runTime: meta.runTime,
-                rowCount: data.length,
+                rowCount: values.length,
               } as JobMeta
             );
             break;
@@ -91,7 +109,7 @@ export class GoogleSheetsAdapter implements DestinationAdapter {
                 jobId: meta.jobId,
                 jobName: meta.jobName,
                 runTime: meta.runTime,
-                rowCount: data.length,
+                rowCount: values.length,
               } as JobMeta
             );
             break;
@@ -100,14 +118,14 @@ export class GoogleSheetsAdapter implements DestinationAdapter {
               jobId: meta.jobId,
               jobName: meta.jobName,
               runTime: meta.runTime,
-              rowCount: data.length,
+              rowCount: values.length,
             } as JobMeta);
             break;
           default:
             throw new Error(`Unknown mode: ${config.mode}`);
         }
 
-        totalRows += data.length;
+        totalRows += values.length;
       }
 
       return {

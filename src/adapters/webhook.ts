@@ -12,7 +12,11 @@ export class WebhookAdapter implements DestinationAdapter {
 
   // Multi-connection support: Send combined array with connection info
   async sendMultiConnection(
-    dataWithMeta: Array<{ connection: any; data: any[] }>,
+    dataWithMeta: Array<{
+      connection: any;
+      data: any[];
+      connectionFailedMessage?: string;
+    }>,
     config: WebhookDestination,
     meta: { jobId: string; jobName: string; runTime: Date }
   ): Promise<SendResult> {
@@ -20,15 +24,19 @@ export class WebhookAdapter implements DestinationAdapter {
       const method = config.method || "POST";
 
       // Combine all data into array format - each connection's data in array
-      const combinedPayload = dataWithMeta.map(({ connection, data }) => ({
-        connectionName: connection.name, // Connection name
-        connectionId: connection.id, // Connection ID
-        financialYear: connection.financialYear || "", // Financial Year
-        group: connection.group || "self", // Group (self/partner)
-        partner: connection.group === "partner" ? connection.partner || "" : "", // Partner name if group is partner
-        rowCount: data.length, // Row count for this connection
-        data: data, // Actual data array
-      }));
+      const combinedPayload = dataWithMeta.map(
+        ({ connection, data, connectionFailedMessage }) => ({
+          connectionName: connection.name, // Connection name
+          connectionId: connection.id, // Connection ID
+          financialYear: connection.financialYear || "", // Financial Year
+          group: connection.group || "self", // Group (self/partner)
+          partner:
+            connection.group === "partner" ? connection.partner || "" : "", // Partner name if group is partner
+          rowCount: data.length, // Row count for this connection
+          connectionFailedMessage: connectionFailedMessage || "", // Connection failed message
+          data: data, // Actual data array
+        })
+      );
 
       await axios({
         method,
