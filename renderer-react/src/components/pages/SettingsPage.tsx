@@ -31,6 +31,7 @@ const SettingsPage = () => {
   const [financialYears, setFinancialYears] = useState<FinancialYear[]>([])
   const [partners, setPartners] = useState<Partner[]>([])
   const [appSettings, setAppSettings] = useState<any>({})
+  const [formSettings, setFormSettings] = useState<any>({})
   const [isFinancialYearDialogOpen, setIsFinancialYearDialogOpen] = useState(false)
   const [isPartnerDialogOpen, setIsPartnerDialogOpen] = useState(false)
   const [editingFinancialYear, setEditingFinancialYear] = useState<FinancialYear | null>(null)
@@ -43,6 +44,19 @@ const SettingsPage = () => {
     loadPartners()
     loadAppSettings()
   }, [])
+
+  // Sync formSettings when appSettings are loaded
+  useEffect(() => {
+    setFormSettings({
+      defaultConnectionTimeout: appSettings.defaultConnectionTimeout ?? 30,
+      dbPoolMax: appSettings.dbPoolMax ?? 20,
+      maxConcurrentConnections: appSettings.maxConcurrentConnections ?? 50,
+      jobQueueMaxConcurrent: appSettings.jobQueueMaxConcurrent ?? 10,
+      enableProgressStreaming: appSettings.enableProgressStreaming !== false,
+      logVerbosity: appSettings.logVerbosity ?? 'info',
+      ...appSettings,
+    })
+  }, [appSettings])
 
   const loadFinancialYears = async () => {
     try {
@@ -136,12 +150,12 @@ const SettingsPage = () => {
     setIsLoading(true)
 
     const formData = new FormData(e.currentTarget)
-    const defaultConnectionTimeout = parseInt(formData.get('defaultConnectionTimeout') as string) || 30
-    const dbPoolMax = parseInt(formData.get('dbPoolMax') as string) || 20
-    const maxConcurrentConnections = parseInt(formData.get('maxConcurrentConnections') as string) || 50
-    const jobQueueMaxConcurrent = parseInt(formData.get('jobQueueMaxConcurrent') as string) || 10
-    const enableProgressStreaming = formData.get('enableProgressStreaming') === 'on'
-    const logVerbosity = formData.get('logVerbosity') as string || 'info'
+  const defaultConnectionTimeout = parseInt(formData.get('defaultConnectionTimeout') as string) || formSettings.defaultConnectionTimeout || 30
+  const dbPoolMax = parseInt(formData.get('dbPoolMax') as string) || formSettings.dbPoolMax || 20
+  const maxConcurrentConnections = parseInt(formData.get('maxConcurrentConnections') as string) || formSettings.maxConcurrentConnections || 50
+  const jobQueueMaxConcurrent = parseInt(formData.get('jobQueueMaxConcurrent') as string) || formSettings.jobQueueMaxConcurrent || 10
+  const enableProgressStreaming = formData.get('enableProgressStreaming') === 'on' || !!formSettings.enableProgressStreaming
+  const logVerbosity = formData.get('logVerbosity') as string || formSettings.logVerbosity || 'info'
 
     try {
       await ipcRenderer.invoke('update-settings', {
@@ -168,6 +182,7 @@ const SettingsPage = () => {
       toast.error('Failed to save application settings. Please try again.')
     } finally {
       setIsLoading(false)
+      loadAppSettings()
     }
   }
 
@@ -231,7 +246,8 @@ const SettingsPage = () => {
                     type="number"
                     min="1"
                     max="300"
-                    defaultValue={appSettings.defaultConnectionTimeout || 30}
+                    value={formSettings.defaultConnectionTimeout}
+                    onChange={(e) => setFormSettings({...formSettings, defaultConnectionTimeout: parseInt(e.target.value) || 0})}
                     placeholder="30"
                     required
                   />
@@ -248,7 +264,8 @@ const SettingsPage = () => {
                     type="number"
                     min="1"
                     max="100"
-                    defaultValue={appSettings.dbPoolMax || 20}
+                    value={formSettings.dbPoolMax}
+                    onChange={(e) => setFormSettings({...formSettings, dbPoolMax: parseInt(e.target.value) || 0})}
                     placeholder="20"
                     required
                   />
@@ -265,7 +282,8 @@ const SettingsPage = () => {
                     type="number"
                     min="1"
                     max="500"
-                    defaultValue={appSettings.maxConcurrentConnections || 50}
+                    value={formSettings.maxConcurrentConnections}
+                    onChange={(e) => setFormSettings({...formSettings, maxConcurrentConnections: parseInt(e.target.value) || 0})}
                     placeholder="50"
                     required
                   />
@@ -288,7 +306,8 @@ const SettingsPage = () => {
                     type="number"
                     min="1"
                     max="50"
-                    defaultValue={appSettings.jobQueueMaxConcurrent || 10}
+                    value={formSettings.jobQueueMaxConcurrent}
+                    onChange={(e) => setFormSettings({...formSettings, jobQueueMaxConcurrent: parseInt(e.target.value) || 0})}
                     placeholder="10"
                     required
                   />
@@ -304,11 +323,12 @@ const SettingsPage = () => {
               <h4 className="text-md font-medium text-gray-800 mb-3">Features</h4>
               <div className="space-y-3">
                 <div className="flex items-center space-x-2">
-                  <input
+                    <input
                     id="enableProgressStreaming"
                     name="enableProgressStreaming"
                     type="checkbox"
-                    defaultChecked={appSettings.enableProgressStreaming !== false}
+                    checked={!!formSettings.enableProgressStreaming}
+                    onChange={(e) => setFormSettings({...formSettings, enableProgressStreaming: e.target.checked})}
                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                   />
                   <Label htmlFor="enableProgressStreaming" className="cursor-pointer">
@@ -329,7 +349,8 @@ const SettingsPage = () => {
                 <select
                   id="logVerbosity"
                   name="logVerbosity"
-                  defaultValue={appSettings.logVerbosity || 'info'}
+                  value={formSettings.logVerbosity}
+                  onChange={(e) => setFormSettings({...formSettings, logVerbosity: e.target.value})}
                   className="w-full md:w-64 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
                 >
                   <option value="error">Error Only</option>

@@ -268,6 +268,46 @@ export class JobScheduler {
     }
   }
 
+  /**
+   * Run a job only for a subset of its configured connections (used for retrying failed connections)
+   */
+  async runJobForConnections(
+    jobId: string,
+    connectionIds: string[]
+  ): Promise<void> {
+    const job = this.getJob(jobId);
+
+    if (!job) {
+      throw new Error(`Job not found: ${jobId}`);
+    }
+
+    // Determine connections selected for retry (ensure they belong to this job)
+    const jobConnectionIds =
+      job.connectionIds || (job.connectionId ? [job.connectionId] : []);
+    const targetIds = connectionIds.filter((id) =>
+      jobConnectionIds.includes(id)
+    );
+
+    if (targetIds.length === 0) {
+      throw new Error("No valid connections selected for retry");
+    }
+
+    const connections = targetIds
+      .map((id) => this.getConnection(id))
+      .filter(Boolean) as any[];
+
+    if (connections.length === 0) {
+      throw new Error("No valid connections found for the selected IDs");
+    }
+
+    // Execute only on the selected connections
+    try {
+      await this.executor.executeJobMultiConnection(job, connections);
+    } catch (error) {
+      // Executor logs errors
+    }
+  }
+
   async testJob(jobId: string): Promise<any> {
     const job = this.getJob(jobId);
 
@@ -525,6 +565,11 @@ export class JobScheduler {
           financialYears: [],
           partners: [],
           defaultConnectionTimeout: 30, // Default 30 seconds
+          dbPoolMax: 20,
+          maxConcurrentConnections: 50,
+          jobQueueMaxConcurrent: 10,
+          enableProgressStreaming: true,
+          logVerbosity: "info",
         };
       }
 
@@ -536,6 +581,15 @@ export class JobScheduler {
         partners: config.settings?.partners || [],
         defaultConnectionTimeout:
           config.settings?.defaultConnectionTimeout || 30, // Default 30 seconds
+        dbPoolMax: config.settings?.dbPoolMax || 20,
+        maxConcurrentConnections:
+          config.settings?.maxConcurrentConnections || 50,
+        jobQueueMaxConcurrent: config.settings?.jobQueueMaxConcurrent || 10,
+        enableProgressStreaming:
+          typeof config.settings?.enableProgressStreaming === "boolean"
+            ? config.settings.enableProgressStreaming
+            : true,
+        logVerbosity: config.settings?.logVerbosity || "info",
       };
     } catch (error: any) {
       logger.error("Failed to get settings", undefined, error);

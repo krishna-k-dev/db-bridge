@@ -19,6 +19,12 @@ interface JobExecutionHistory {
   failedConnections: number
   errors?: string[]
   result?: any
+  connectionDetails?: Array<{
+    connectionId: string
+    connectionName?: string
+    status?: string
+    error?: string
+  }>
 }
 
 interface PoolMetrics {
@@ -43,6 +49,7 @@ const MonitoringPage = () => {
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [searchTerm, setSearchTerm] = useState('')
   const [poolMetrics, setPoolMetrics] = useState<PoolMetrics | null>(null)
+  const [retryingJobs, setRetryingJobs] = useState<string[]>([])
 
   useEffect(() => {
     loadHistory()
@@ -396,12 +403,15 @@ const MonitoringPage = () => {
                 <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Result
                 </th>
+                <th className="px-2 py-1 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 text-xs">
               {filteredHistory.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
                     No job history found. Jobs will appear here after execution.
                   </td>
                 </tr>
@@ -454,6 +464,42 @@ const MonitoringPage = () => {
                         </div>
                       ) : (
                         <span className="text-green-600">Success</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1 whitespace-nowrap text-right">
+                      {item.failedConnections > 0 && item.connectionDetails && (
+                        <button
+                          onClick={async () => {
+                            if (!confirm(`Retry failed connections for job \"${item.jobName}\"?`)) return
+                            const failedIds = item.connectionDetails!.filter(c => c.status === 'failed').map(c => c.connectionId)
+                            if (failedIds.length === 0) {
+                              toast.error('No failed connections found to retry')
+                              return
+                            }
+
+                            setRetryingJobs(prev => [...prev, item.id])
+                            const promise = ipcRenderer.invoke('run-job-connections', item.jobId, failedIds)
+
+                            toast.promise(promise, {
+                              loading: `Retrying ${failedIds.length} connection(s)...`,
+                              success: () => {
+                                loadHistory()
+                                return 'Retry started'
+                              },
+                              error: 'Failed to start retry'
+                            })
+
+                            try {
+                              await promise
+                            } finally {
+                              setRetryingJobs(prev => prev.filter(id => id !== item.id))
+                            }
+                          }}
+                          disabled={retryingJobs.includes(item.id)}
+                          className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50"
+                        >
+                          {retryingJobs.includes(item.id) ? 'Retrying...' : 'Retry Failed'}
+                        </button>
                       )}
                     </td>
                   </tr>

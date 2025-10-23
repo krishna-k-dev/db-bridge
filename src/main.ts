@@ -30,6 +30,13 @@ interface JobExecutionHistory {
   failedConnections: number;
   errors?: string[];
   result?: any;
+  // Optional per-connection details for retrying failed connections
+  connectionDetails?: Array<{
+    connectionId: string;
+    connectionName: string;
+    status: string;
+    error?: string | null;
+  }>;
 }
 
 let jobHistory: JobExecutionHistory[] = [];
@@ -171,6 +178,23 @@ app.whenReady().then(() => {
   // Listen for job completions to add to history
   progressStream.on("job:finished", (data: any) => {
     const { jobId, status, progress, result, error, duration } = data;
+    // Extract connection-level details (if available) for retry UI
+    let connectionDetails: Array<any> | undefined = undefined;
+    try {
+      const cp = progress.connectionProgress as Map<string, any> | undefined;
+      if (cp && typeof cp === "object") {
+        connectionDetails = Array.from((cp as Map<string, any>).values()).map(
+          (c: any) => ({
+            connectionId: c.connectionId,
+            connectionName: c.connectionName,
+            status: c.status,
+            error: c.error || null,
+          })
+        );
+      }
+    } catch (e) {
+      connectionDetails = undefined;
+    }
 
     const historyRecord: JobExecutionHistory = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -185,6 +209,7 @@ app.whenReady().then(() => {
       failedConnections: progress.failedConnections,
       errors: progress.errors,
       result,
+      connectionDetails,
     };
 
     addJobToHistory(historyRecord);
@@ -531,6 +556,19 @@ app.whenReady().then(() => {
       return [];
     }
   });
+
+  ipcMain.handle(
+    "run-job-connections",
+    async (_event, jobId: string, connectionIds: string[]) => {
+      try {
+        await scheduler.runJobForConnections(jobId, connectionIds);
+        return { success: true };
+      } catch (error: any) {
+        logger.error("Failed to run job for connections", jobId, error);
+        return { success: false, message: error.message };
+      }
+    }
+  );
 
   ipcMain.handle("delete-job-history", (_event, ids: string[]) => {
     try {

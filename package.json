@@ -1,6 +1,6 @@
 {
   "name": "sql-bridge-app",
-  "version": "2.0.0",
+  "version": "1.2.3",
   "description": "Desktop app to bridge local SQL Server data to any destination (webhooks, Google Sheets, APIs)",
   "main": "dist/main.js",
   "scripts": {
