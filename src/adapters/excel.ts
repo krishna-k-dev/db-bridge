@@ -143,6 +143,72 @@ export class ExcelAdapter implements DestinationAdapter {
         `Excel file created with ${dataWithMeta.length} sheets: ${actualFilePath} | ${totalRows} total rows`
       );
 
+      // Build summary sheet
+      try {
+        const summarySheetName = (config as any).summarySheetName || "Summary";
+        const summaryHeaders = [
+          "timestamp",
+          "connectionName",
+          "server",
+          "database",
+          "financialYear",
+          "group",
+          "partner",
+          "status",
+          "rows",
+        ];
+
+        const runTimeIso =
+          meta && (meta as any).runTime
+            ? new Date((meta as any).runTime).toISOString()
+            : new Date().toISOString();
+
+        const summaryRows = dataWithMeta.map((item) => {
+          const conn: any = item.connection;
+          const status = item.connectionFailedMessage
+            ? `FAILED: ${item.connectionFailedMessage}`
+            : `SUCCESS: ${item.data.length} rows`;
+
+          return [
+            runTimeIso,
+            conn.name || "",
+            conn.server || "",
+            conn.database || "",
+            conn.financialYear || "",
+            conn.group || "",
+            conn.partner || "",
+            status,
+            item.data.length || 0,
+          ];
+        });
+
+        // Create or replace summary sheet
+        const summarySheet = XLSX.utils.json_to_sheet([
+          // Convert rows to objects matching headers for easy appending
+          ...summaryRows.map((r) => {
+            const obj: any = {};
+            summaryHeaders.forEach((h, i) => (obj[h] = r[i]));
+            return obj;
+          }),
+        ]);
+
+        // Remove existing summary sheet if present
+        if (workbook.SheetNames.includes(summarySheetName)) {
+          delete workbook.Sheets[summarySheetName];
+          const idx = workbook.SheetNames.indexOf(summarySheetName);
+          if (idx > -1) workbook.SheetNames.splice(idx, 1);
+        }
+
+        XLSX.utils.book_append_sheet(workbook, summarySheet, summarySheetName);
+
+        // Write file again with summary sheet
+        XLSX.writeFile(workbook, actualFilePath);
+      } catch (err: any) {
+        logger.warn(
+          `Failed to write Excel summary sheet: ${err?.message || err}`
+        );
+      }
+
       return {
         success: true,
         message: `Created Excel with ${dataWithMeta.length} sheets (${totalRows} rows) in ${actualFilePath}`,

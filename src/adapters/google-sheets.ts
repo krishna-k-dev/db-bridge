@@ -120,6 +120,81 @@ export class GoogleSheetsAdapter implements DestinationAdapter {
         totalRows += values.length;
       }
 
+      // Build summary rows for this job run
+      try {
+        const summarySheetName = (config as any).summarySheetName || "Summary";
+
+        // Ensure summary sheet exists
+        await this.ensureSheetExists(
+          sheets,
+          config.spreadsheetId,
+          summarySheetName
+        );
+
+        // Check if header exists
+        const headerResp = await sheets.spreadsheets.values
+          .get({
+            spreadsheetId: config.spreadsheetId,
+            range: `${summarySheetName}!1:1`,
+          })
+          .catch(() => ({ data: {} }));
+
+        const headerData: any = headerResp && (headerResp as any).data;
+        const hasHeader =
+          headerData && headerData.values && headerData.values.length > 0;
+
+        const summaryHeaders = [
+          "timestamp",
+          "connectionName",
+          "server",
+          "database",
+          "financialYear",
+          "group",
+          "partner",
+          "status",
+          "rows",
+        ];
+
+        const runTimeIso =
+          meta && meta.runTime
+            ? new Date((meta as any).runTime).toISOString()
+            : new Date().toISOString();
+
+        const summaryValues = dataWithMeta.map((item) => {
+          const conn = item.connection as any;
+          const status = item.connectionFailedMessage
+            ? `FAILED: ${item.connectionFailedMessage}`
+            : `SUCCESS: ${item.data.length} rows`;
+
+          return [
+            runTimeIso,
+            conn.name || "",
+            conn.server || "",
+            conn.database || "",
+            conn.financialYear || "",
+            conn.group || "",
+            conn.partner || "",
+            status,
+            item.data.length || 0,
+          ];
+        });
+
+        if (summaryValues.length > 0) {
+          const toAppend = hasHeader
+            ? summaryValues
+            : [summaryHeaders, ...summaryValues];
+
+          await sheets.spreadsheets.values.append({
+            spreadsheetId: config.spreadsheetId,
+            range: `${summarySheetName}!A1`,
+            valueInputOption: "RAW",
+            requestBody: { values: toAppend },
+          });
+        }
+      } catch (err: any) {
+        logger.warn(`Failed to write summary sheet: ${err?.message || err}`);
+      }
+
       return {
         success: true,
         message: `Successfully created/updated ${dataWithMeta.length} sheets with ${totalRows} total rows in Google Sheets`,
