@@ -221,8 +221,8 @@ const JobsPage = ({ onCountChange }: JobsPageProps) => {
                   </td>
                 </tr>
               ) : (
-                filteredJobs.map((job) => (
-                  <tr key={job.id} className="hover:bg-gray-50">
+                filteredJobs.map((job, idx) => (
+                  <tr key={job.id ?? `job-${idx}-${(job.name || '').replace(/\s+/g, '-')}` } className="hover:bg-gray-50">
                     <td className="px-2 py-1 whitespace-nowrap font-medium text-gray-900">
                       {job.name}
                     </td>

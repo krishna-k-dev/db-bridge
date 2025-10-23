@@ -208,6 +208,16 @@ app.whenReady().then(() => {
     return { success: true };
   });
 
+  // Backwards-compatible handler: some renderers call 'create-job'
+  ipcMain.handle("create-job", (_event, job: Job) => {
+    try {
+      scheduler.addJob(job);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, message: error.message };
+    }
+  });
+
   ipcMain.handle(
     "update-job",
     (_event, jobId: string, updates: Partial<Job>) => {

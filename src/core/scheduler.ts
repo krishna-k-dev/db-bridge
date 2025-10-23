@@ -168,6 +168,15 @@ export class JobScheduler {
   }
 
   addJob(job: Job): void {
+    // Ensure job has an id (renderer may send job without id for duplication)
+    if (!job.id) {
+      job.id = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    }
+
+    // Ensure required defaults
+    job.destinations = job.destinations || [];
+    job.enabled = typeof job.enabled === "boolean" ? job.enabled : true;
+
     this.jobs.push(job);
     this.saveConfig();
 
