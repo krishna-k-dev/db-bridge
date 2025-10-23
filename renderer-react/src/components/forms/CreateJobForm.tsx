@@ -352,7 +352,7 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
   const [fyFilter, setFyFilter] = useState<string>("all")
   const [groupFilter, setGroupFilter] = useState<string>("all")
   const [partnerFilter, setPartnerFilter] = useState<string>("all")
-  const [selectedConnections, setSelectedConnections] = useState(() => job ? job.connections || [] : [])
+  const [selectedConnections, setSelectedConnections] = useState(() => job ? (job.connectionIds || (job.connectionId ? [job.connectionId] : [])) : [])
   const [destinations, setDestinations] = useState(() => job ? job.destinations || [] : [])
   const [name, setName] = useState(() => job ? job.name || "" : "")
   const [query, setQuery] = useState(() => job ? job.query || "" : "")
@@ -384,7 +384,11 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
       setName(job.name || "")
       setQuery(job.query || "")
       setTrigger(job.trigger || "always")
-      setSelectedConnections(job.connections || [])
+      // Handle both connectionIds (new) and connectionId (legacy) for backward compatibility
+      // Filter out connections that no longer exist
+      const jobConnectionIds = job.connectionIds || (job.connectionId ? [job.connectionId] : [])
+      const existingConnectionIds = jobConnectionIds.filter((id: string) => connections.some(c => c.id === id))
+      setSelectedConnections(existingConnectionIds)
       setDestinations(job.destinations || [])
       
       // Set schedule
@@ -393,7 +397,7 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
       const preset = schedulePresets.find(p => p.cron === jobSchedule)
       setSelectedScheduleType(preset ? preset.value : "custom")
     }
-  }, [job])
+  }, [job, connections])
 
   const filteredConnections = connections.filter((c) => {
     if (fyFilter !== 'all' && c.financialYear !== fyFilter) return false
@@ -486,7 +490,7 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
       query: query,
       schedule: schedule,
       trigger: trigger,
-      connections: selectedConnections,
+      connectionIds: selectedConnections,
       destinations: destinations,
       createdAt: job?.createdAt || new Date(),
     }

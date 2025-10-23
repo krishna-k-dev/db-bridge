@@ -18,6 +18,7 @@ export interface SQLConnection {
   };
   createdAt?: Date;
   lastTested?: Date;
+  testStatus?: "connected" | "failed" | "not-tested";
 }
 
 export interface Job {

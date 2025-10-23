@@ -18,10 +18,17 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { toast } from "sonner"
 
-// @ts-ignore - Electron types
 const { ipcRenderer } = window.require('electron')
+const XLSX = window.require('xlsx')
 
 interface Connection {
   id: string
@@ -37,14 +44,28 @@ interface Connection {
   options?: {
     trustServerCertificate?: boolean
     encrypt?: boolean
-    [key: string]: any
+    [key: string]: unknown
   }
   createdAt?: Date
   lastTested?: Date
+  testStatus?: "connected" | "failed" | "not-tested"
 }
 
 interface ConnectionsPageProps {
   onCountChange: (count: number) => void
+}
+
+// Header mapping for CSV/Excel to interface keys
+const headerMapping: { [key: string]: string } = {
+  'name': 'name',
+  'server': 'server',
+  'database': 'database',
+  'user': 'user',
+  'password': 'password',
+  'port': 'port',
+  'financialyear': 'financialYear',
+  'group': 'group',
+  'partner': 'partner'
 }
 
 const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
@@ -52,12 +73,28 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
   const [connections, setConnections] = useState<Connection[]>([])
   const [searchTerm, setSearchTerm] = useState('')
   const [deleteConnectionId, setDeleteConnectionId] = useState<string | null>(null)
+  const [isBulkDialogOpen, setIsBulkDialogOpen] = useState(false)
+  const [selectedConnections, setSelectedConnections] = useState<string[]>([])
+  const [isBulkDeleteConfirm, setIsBulkDeleteConfirm] = useState(false)
+  const [filterFinancialYear, setFilterFinancialYear] = useState<string>('all')
+  const [filterGroup, setFilterGroup] = useState<string>('all')
+  const [filterPartner, setFilterPartner] = useState<string>('all')
+  const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [isBulkTesting, setIsBulkTesting] = useState(false)
 
   const loadConnections = async () => {
     try {
       const data = await ipcRenderer.invoke('get-connections')
       if (data) {
-        setConnections(data)
+        // Normalize testStatus for existing connections: map legacy 'tested' -> 'connected'
+        const connectionsWithStatus = data.map((conn: Connection) => ({
+          ...conn,
+          testStatus:
+            (conn as any).testStatus === 'tested'
+              ? 'connected'
+              : conn.testStatus || (conn.lastTested ? 'connected' : 'not-tested'),
+        }))
+        setConnections(connectionsWithStatus)
       }
     } catch (error) {
       console.error('Failed to load connections:', error)
@@ -65,17 +102,23 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
   }
 
   const handleTestConnection = async (connectionId: string) => {
-    try {
-      const result = await ipcRenderer.invoke('test-connection', connectionId)
+    const testPromise = ipcRenderer.invoke('test-connection', connectionId).then(async (result: any) => {
       if (result && result.success) {
-        toast.success('Connection test successful!')
+        // Reload connections to get updated status
+        await loadConnections();
+        return result
       } else {
-        toast.error(`Connection test failed: ${result?.error || 'Unknown error'}`)
+        // Reload connections to get updated status even on failure
+        await loadConnections();
+        throw new Error(result?.error || 'Connection test failed')
       }
-    } catch (error) {
-      console.error('Failed to test connection:', error)
-      toast.error('Failed to test connection. Please try again.')
-    }
+    })
+
+    toast.promise(testPromise, {
+      loading: 'Testing connection...',
+      success: 'Connection test successful!',
+      error: (error) => `Connection test failed: ${error.message}`,
+    })
   }
 
   const handleEditConnection = (_connectionId: string) => {
@@ -84,34 +127,43 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
   }
 
   const handleDuplicateConnection = async (connectionId: string) => {
-    try {
-      const result = await ipcRenderer.invoke('duplicate-connection', connectionId)
-      if (result && result.success) {
-        toast.success('Connection duplicated successfully!')
-        // Refresh connections list
+    const result = await ipcRenderer.invoke('duplicate-connection', connectionId)
+    toast.promise(result, {
+      loading: 'Duplicating connection...',
+      success: 'Connection duplicated successfully!',
+      error: (error) => `Failed to duplicate connection: ${error?.message || 'Unknown error'}`,
+      finally: () =>  loadConnections(),
+    })
+  }
+
+       
+    
+  const handleBulkDelete = async () => {
+    if (selectedConnections.length === 0) return
+    const result =  Promise.all(selectedConnections.map(id => ipcRenderer.invoke('delete-connection', id)))
+    toast.promise(result, {
+      loading: 'Deleting connections...',
+      success: `${selectedConnections.length} connections deleted successfully!`,
+      error: (error) => `Failed to delete connections: ${error?.message || 'Unknown error'}`,
+      finally: () => {
         loadConnections()
-      } else {
-        toast.error(`Failed to duplicate connection: ${result?.error || 'Unknown error'}`)
+        setSelectedConnections([])
       }
-    } catch (error) {
-      console.error('Failed to duplicate connection:', error)
-      toast.error('Failed to duplicate connection. Please try again.')
-    }
+    })
   }
 
   const handleDeleteConnection = async () => {
     if (!deleteConnectionId) return
-
-    try {
-      await ipcRenderer.invoke('delete-connection', deleteConnectionId)
-      toast.success('Connection deleted successfully!')
-      // Reload connections after deletion
-      loadConnections()
-      setDeleteConnectionId(null)
-    } catch (error) {
-      console.error('Failed to delete connection:', error)
-      toast.error('Failed to delete connection. Please try again.')
-    }
+    const result = ipcRenderer.invoke('delete-connection', deleteConnectionId)
+    toast.promise(result, {
+      loading: 'Deleting connection...',
+      success: 'Connection deleted successfully!',
+      error: (error) => `Failed to delete connection: ${error?.message || 'Unknown error'}`,
+      finally: () => {
+        loadConnections()
+        setDeleteConnectionId(null)
+      }
+    })
   }
 
   useEffect(() => {
@@ -123,97 +175,198 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
     onCountChange(connections.length)
   }, [connections, onCountChange])
 
-  const handleTestAllConnections = async () => {
-    if (connections.length === 0) {
+  const handleTestAllConnections = async (): Promise<string> => {
+    if (isBulkTesting) {
+      toast.warning('Bulk test already in progress')
+      return ''
+    }
+
+    if (filteredConnections.length === 0) {
       toast.warning('No connections to test')
-      return
+      return ''
+    }
+
+    setIsBulkTesting(true)
+
+    try {
+      // Call bulk test with only filtered connections
+      const results = await ipcRenderer.invoke('bulk-test-connections', filteredConnections.map((c) => c.id))
+
+      let successCount = 0
+      let failCount = 0
+      const resultMessages: string[] = []
+
+      results.forEach((result: any) => {
+        const connection = filteredConnections.find((c) => c.id === result.connectionId)
+        const connectionName = connection?.name || result.connectionId
+
+        if (result.success) {
+          successCount++
+          resultMessages.push(`${connectionName}: ✅ Connected`)
+        } else {
+          failCount++
+          resultMessages.push(`${connectionName}: ❌ Failed - ${result.message}`)
+        }
+      })
+
+      // Reload connections to get updated status for all tested connections
+      await loadConnections()
+
+      const summary = `Test Results:\n${resultMessages.join('\n')}\n\nSummary: ${successCount} successful, ${failCount} failed`
+      return summary
+    } catch (error: any) {
+      console.error('Bulk test invocation failed:', error)
+      // Better message if IPC handler missing (common in dev when main didn't register)
+      if (error && String(error.message || error).includes('No handler registered')) {
+        toast.error('Bulk test failed: backend handler not available. Please restart the app.')
+        throw new Error('Bulk test handler not available')
+      }
+      toast.error(`Bulk test failed: ${error?.message || String(error)}`)
+      throw new Error(`Bulk test failed: ${error?.message || String(error)}`)
+    } finally {
+      setIsBulkTesting(false)
+    }
+  }
+
+  const processBulkUpload = async (file: File) => {
+    let data: any[] = []
+
+    if (file.name.endsWith('.csv')) {
+      // Parse CSV
+      const text = await file.text()
+      const lines = text.split('\n').filter(line => line.trim())
+      if (lines.length < 2) {
+        throw new Error('CSV file must have at least a header row and one data row')
+      }
+
+      const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
+      for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim())
+        if (values.length !== headers.length) continue
+        const row: any = {}
+        headers.forEach((header, index) => {
+          row[header] = values[index]
+        })
+        data.push(row)
+      }
+    } else {
+      // Parse Excel
+      const arrayBuffer = await file.arrayBuffer()
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+      const sheetName = workbook.SheetNames[0]
+      const sheet = workbook.Sheets[sheetName]
+      const rawData = XLSX.utils.sheet_to_json(sheet, { header: 1 })
+
+      if (rawData.length < 2) {
+        throw new Error('Excel file must have at least a header row and one data row')
+      }
+
+      const headers = (rawData[0] as string[]).map(h => h.trim().toLowerCase())
+      data = rawData.slice(1).map((row: any) => {
+        const obj: any = {}
+        headers.forEach((header, index) => {
+          obj[header] = row[index] || ''
+        })
+        return obj
+      })
+    }
+
+    const requiredHeaders = ['name', 'server', 'database']
+    const fileHeaders = Object.keys(data[0] || {}).map(h => h.toLowerCase())
+    const missingHeaders = requiredHeaders.filter(h => !fileHeaders.includes(h))
+
+    if (missingHeaders.length > 0) {
+      throw new Error(`Missing required columns: ${missingHeaders.join(', ')}`)
+    }
+
+    // Collect unique financial years and partners from the data
+    const uniqueFinancialYearsInData = new Set<string>()
+    const uniquePartnersInData = new Set<string>()
+
+    for (const row of data) {
+      const financialYear = row['financialyear']?.toString().trim()
+      if (financialYear) {
+        uniqueFinancialYearsInData.add(financialYear)
+      }
+      const group = row['group']?.toString().trim().toLowerCase()
+      const partner = row['partner']?.toString().trim()
+      if (group === 'partner' && partner) {
+        uniquePartnersInData.add(partner)
+      }
+    }
+
+    // Get existing financial years and partners
+    const existingFinancialYears = await ipcRenderer.invoke('get-financial-years')
+    const existingPartners = await ipcRenderer.invoke('get-partners')
+
+    // Create new financial years
+    for (const year of uniqueFinancialYearsInData) {
+      if (!existingFinancialYears.some((fy: any) => fy.year?.toLowerCase() === year.toLowerCase())) {
+        await ipcRenderer.invoke('create-financial-year', year)
+      }
+    }
+
+    // Create new partners
+    for (const partner of uniquePartnersInData) {
+      if (!existingPartners.some((p: any) => p.name?.toLowerCase() === partner.toLowerCase())) {
+        await ipcRenderer.invoke('create-partner', partner)
+      }
     }
 
     let successCount = 0
     let failCount = 0
-    const results: string[] = []
 
-    for (const connection of connections) {
-      try {
-        const result = await ipcRenderer.invoke('test-connection', connection.id)
-        if (result && result.success) {
-          successCount++
-          results.push(`${connection.name}: ✅ Success`)
-        } else {
-          failCount++
-          results.push(`${connection.name}: ❌ Failed - ${result?.error || 'Unknown error'}`)
+    for (const row of data) {
+      const connectionData: Partial<Connection> = {}
+      Object.keys(row).forEach(key => {
+        const mappedKey = headerMapping[key] || key
+        const value = row[key]?.toString().trim()
+        if (value) {
+          (connectionData as any)[mappedKey] = value
         }
+      })
+
+      // Normalize and set defaults
+      connectionData.id = `conn_${Date.now()}_${Math.random()}`
+      connectionData.financialYear = connectionData.financialYear || '2024-25'
+      const groupValue = (connectionData.group as string)?.toLowerCase()
+      connectionData.group = (groupValue === 'partner') ? 'partner' : 'self'
+      connectionData.options = {
+        trustServerCertificate: true
+      }
+
+      try {
+        await ipcRenderer.invoke('add-connection', connectionData)
+        successCount++
       } catch (error) {
+        console.error('Failed to add connection:', error)
         failCount++
-        results.push(`${connection.name}: ❌ Error - ${error}`)
       }
     }
 
-    const summary = `Test Results:\n${results.join('\n')}\n\nSummary: ${successCount} successful, ${failCount} failed`
-    toast.info(summary, { duration: 10000 }) // Show for 10 seconds since it's detailed
+    return { successCount, failCount }
   }
 
   const handleBulkUpload = () => {
     // Create a hidden file input
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.csv'
+    input.accept = '.csv,.xlsx,.xls'
     input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0]
       if (!file) return
 
-      try {
-        const text = await file.text()
-        const lines = text.split('\n').filter(line => line.trim())
-        if (lines.length < 2) {
-          toast.error('CSV file must have at least a header row and one data row')
-          return
-        }
-
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
-        const requiredHeaders = ['name', 'server', 'database']
-        const missingHeaders = requiredHeaders.filter(h => !headers.includes(h))
-
-        if (missingHeaders.length > 0) {
-          toast.error(`Missing required columns: ${missingHeaders.join(', ')}`)
-          return
-        }
-
-        let successCount = 0
-        let failCount = 0
-
-        for (let i = 1; i < lines.length; i++) {
-          const values = lines[i].split(',').map(v => v.trim())
-          if (values.length !== headers.length) continue
-
-          const connectionData: any = {}
-          headers.forEach((header, index) => {
-            connectionData[header] = values[index]
-          })
-
-          // Set defaults
-          connectionData.id = `conn_${Date.now()}_${i}`
-          connectionData.financialYear = connectionData.financialYear || '2024-25'
-          connectionData.group = connectionData.group || 'self'
-          connectionData.options = {
-            trustServerCertificate: true
-          }
-
-          try {
-            await ipcRenderer.invoke('add-connection', connectionData)
-            successCount++
-          } catch (error) {
-            console.error('Failed to add connection:', error)
-            failCount++
-          }
-        }
-
-        toast.success(`Bulk upload completed: ${successCount} connections added, ${failCount} failed`)
+      const p = processBulkUpload(file).then((result) => {
         loadConnections()
-      } catch (error) {
-        console.error('Failed to process CSV:', error)
-        alert('Failed to process CSV file')
-      }
+        setIsBulkDialogOpen(false)
+        return result
+      })
+
+      toast.promise(p, {
+        loading: 'Processing file...',
+        success: ({ successCount, failCount }) => `Bulk upload completed: ${successCount} connections added, ${failCount} failed`,
+        error: (err: any) => err?.message || 'Failed to process the file. Please check the format.',
+      })
     }
     input.click()
   }
@@ -234,15 +387,94 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
     window.URL.revokeObjectURL(url)
   }
 
-  const filteredConnections = connections.filter(conn =>
-    conn.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    conn.server.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    conn.database.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (conn.user && conn.user.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (conn.financialYear && conn.financialYear.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (conn.group && conn.group.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (conn.partner && conn.partner.toLowerCase().includes(searchTerm.toLowerCase()))
-  )
+  const handleExportConnections = async () => {
+    // Prepare data for export - use filtered connections
+    const exportData = filteredConnections.map(conn => ({
+      name: conn.name,
+      server: conn.server,
+      database: conn.database,
+      user: conn.user || '',
+      password: '', // Don't export passwords for security
+      port: conn.port || '',
+      financialYear: conn.financialYear || '',
+      group: conn.group || 'self',
+      partner: conn.partner || '',
+      testStatus: conn.testStatus || 'not-tested',
+      lastTested: conn.lastTested ? new Date(conn.lastTested).toLocaleString() : '',
+      createdAt: conn.createdAt ? new Date(conn.createdAt).toLocaleDateString() : ''
+    }))
+
+    // Create worksheet
+    const ws = XLSX.utils.json_to_sheet(exportData)
+    
+    // Create workbook
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Connections')
+    
+    // Generate default filename with timestamp
+    const timestamp = new Date().toISOString().split('T')[0]
+    const defaultFilename = `connections_export_${timestamp}.xlsx`
+    
+    // Show save dialog
+    const result = await ipcRenderer.invoke('show-save-dialog', {
+      title: 'Save Connections Export',
+      defaultPath: defaultFilename,
+      filters: [
+        { name: 'Excel Files', extensions: ['xlsx'] },
+        { name: 'All Files', extensions: ['*'] }
+      ]
+    })
+    
+    if (result.canceled || !result.filePath) {
+      return // User canceled
+    }
+    
+    try {
+      // Write Excel file to selected path
+      XLSX.writeFile(wb, result.filePath)
+      
+      // Extract directory path for display
+      const fileName = result.filePath.split('\\').pop() || result.filePath.split('/').pop() || 'file'
+      const dirPath = result.filePath.substring(0, result.filePath.lastIndexOf('\\')) || 
+                     result.filePath.substring(0, result.filePath.lastIndexOf('/')) || result.filePath
+      
+      toast.success(`Connections exported to ${fileName}`, {
+        description: `Saved in: ${dirPath}`,
+        action: {
+          label: 'Open Folder',
+          onClick: () => {
+            ipcRenderer.invoke('open-file-location', result.filePath)
+          }
+        }
+      })
+    } catch (error) {
+      toast.error(`Failed to export connections: ${error}`)
+    }
+  }
+
+  const uniqueFinancialYears = [...new Set(connections.map(c => c.financialYear).filter(Boolean))]
+  const uniquePartners = [...new Set(connections.map(c => c.partner).filter(Boolean))]
+
+  const filteredConnections = connections.filter(conn => {
+    const matchesSearch = !searchTerm ||
+      (conn.name && conn.name.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (conn.server && conn.server.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (conn.database && conn.database.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (conn.user && conn.user.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (conn.financialYear && conn.financialYear.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (conn.group && conn.group.toLowerCase().includes(searchTerm.toLowerCase())) ||
+      (conn.partner && conn.partner.toLowerCase().includes(searchTerm.toLowerCase()))
+
+    const matchesFinancialYear = filterFinancialYear === 'all' || conn.financialYear === filterFinancialYear
+    const matchesGroup = filterGroup === 'all' || conn.group === filterGroup
+    const matchesPartner = filterPartner === 'all' || conn.partner === filterPartner
+    const matchesStatus = filterStatus === 'all' ||
+      (filterStatus === 'connected' && conn.testStatus === 'connected') ||
+      (filterStatus === 'failed' && conn.testStatus === 'failed') ||
+      (filterStatus === 'not-tested' && conn.testStatus === 'not-tested')
+
+    return matchesSearch && matchesFinancialYear && matchesGroup && matchesPartner && matchesStatus
+  })
 
   return (
     <div className="h-full flex flex-col">
@@ -254,48 +486,106 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
             <p className="text-gray-600 mt-1">Manage your database connections</p>
           </div>
           <div className="flex gap-2">
+            {selectedConnections.length > 0 && (
+              <button
+                onClick={() => setIsBulkDeleteConfirm(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                <Trash2 className="w-4 h-4" />
+                Delete Selected ({selectedConnections.length})
+              </button>
+            )}
             <button
-              onClick={handleTestAllConnections}
+              onClick={() => toast.promise(handleTestAllConnections(), { 
+                loading: 'Testing all connections...', 
+                success: (summary) => summary, 
+                error: 'Failed to test connections' 
+              })}
               className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
             >
               <Play className="w-4 h-4" />
               Test All
             </button>
             <button
-              onClick={handleBulkUpload}
+              onClick={() => setIsBulkDialogOpen(true)}
               className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
             >
               <Upload className="w-4 h-4" />
               Bulk Upload
             </button>
             <button
-              onClick={handleDownloadTemplate}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              onClick={handleExportConnections}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               <Download className="w-4 h-4" />
-              Download Template
+              Export
             </button>
             <button
               onClick={() => navigate('/connections/create')}
               className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
             >
               <Plus className="w-4 h-4" />
-              Add Connection
+              Add
             </button>
           </div>
         </div>
 
         {/* Search and Filters */}
-        <div className="mt-6 flex gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search connections..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-            />
+        <div className="mt-6 space-y-4">
+          <div className="flex gap-4">
+            <div className="flex-1 relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search connections..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+              />
+            </div>
+          </div>
+          <div className="flex gap-4 flex-wrap">
+            <select
+              value={filterFinancialYear}
+              onChange={(e) => setFilterFinancialYear(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="all">All Financial Years</option>
+              {uniqueFinancialYears.map(year => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+            <select
+              value={filterGroup}
+              onChange={(e) => setFilterGroup(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="all">All Groups</option>
+              <option value="self">Self</option>
+              <option value="partner">Partner</option>
+            </select>
+            {filterGroup === 'partner' && (
+              <select
+                value={filterPartner}
+                onChange={(e) => setFilterPartner(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+              >
+                <option value="all">All Partners</option>
+                {uniquePartners.map(partner => (
+                  <option key={partner} value={partner}>{partner}</option>
+                ))}
+              </select>
+            )}
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+            >
+              <option value="all">All Status</option>
+              <option value="connected">Connected</option>
+              <option value="failed">Failed</option>
+              <option value="not-tested">Not Tested</option>
+            </select>
           </div>
         </div>
       </header>
@@ -306,6 +596,20 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                  <input
+                    type="checkbox"
+                    checked={selectedConnections.length === filteredConnections.length && filteredConnections.length > 0}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        setSelectedConnections(filteredConnections.map(c => c.id))
+                      } else {
+                        setSelectedConnections([])
+                      }
+                    }}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Name
                 </th>
@@ -328,6 +632,9 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
                   Status
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                  Last Updated
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
@@ -335,13 +642,27 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
             <tbody className="divide-y divide-gray-200">
               {filteredConnections.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
                     No connections found. Click "Add Connection" to get started.
                   </td>
                 </tr>
               ) : (
                 filteredConnections.map((connection) => (
                   <tr key={connection.id} className="hover:bg-gray-50">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <input
+                        type="checkbox"
+                        checked={selectedConnections.includes(connection.id)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedConnections(prev => [...prev, connection.id])
+                          } else {
+                            setSelectedConnections(prev => prev.filter(id => id !== connection.id))
+                          }
+                        }}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">
                       {connection.name}
                     </td>
@@ -367,9 +688,22 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
                       {connection.partner || '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-2 py-1 text-xs font-semibold rounded-full bg-green-100 text-green-800">
-                        Connected
+                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                        connection.testStatus === 'connected'
+                          ? 'bg-green-100 text-green-800'
+                          : connection.testStatus === 'failed'
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {connection.testStatus === 'connected'
+                          ? 'Connected'
+                          : connection.testStatus === 'failed'
+                          ? 'Failed'
+                          : 'Not Tested'}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
+                      {connection.lastTested ? new Date(connection.lastTested).toLocaleString() : '-'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <DropdownMenu>
@@ -426,6 +760,50 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AlertDialog open={isBulkDeleteConfirm} onOpenChange={() => setIsBulkDeleteConfirm(false)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Selected Connections</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete the selected {selectedConnections.length} connections? This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { handleBulkDelete(); setIsBulkDeleteConfirm(false); }} className="bg-red-600 hover:bg-red-700">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog open={isBulkDialogOpen} onOpenChange={setIsBulkDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Bulk Upload Connections</DialogTitle>
+            <DialogDescription>
+              Upload a CSV or Excel file to add multiple connections at once. Download the template first to see the required format.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex gap-4 mt-4">
+            <button
+              onClick={handleDownloadTemplate}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              <Download className="w-4 h-4" />
+              Download Template
+            </button>
+            <button
+              onClick={handleBulkUpload}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              <Upload className="w-4 h-4" />
+              Select File
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

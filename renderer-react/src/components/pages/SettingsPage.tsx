@@ -30,6 +30,7 @@ const { ipcRenderer } = window.require('electron')
 const SettingsPage = () => {
   const [financialYears, setFinancialYears] = useState<FinancialYear[]>([])
   const [partners, setPartners] = useState<Partner[]>([])
+  const [appSettings, setAppSettings] = useState<any>({})
   const [isFinancialYearDialogOpen, setIsFinancialYearDialogOpen] = useState(false)
   const [isPartnerDialogOpen, setIsPartnerDialogOpen] = useState(false)
   const [editingFinancialYear, setEditingFinancialYear] = useState<FinancialYear | null>(null)
@@ -40,6 +41,7 @@ const SettingsPage = () => {
   useEffect(() => {
     loadFinancialYears()
     loadPartners()
+    loadAppSettings()
   }, [])
 
   const loadFinancialYears = async () => {
@@ -61,6 +63,17 @@ const SettingsPage = () => {
       }
     } catch (error) {
       console.error('Failed to load partners:', error)
+    }
+  }
+
+  const loadAppSettings = async () => {
+    try {
+      const data = await ipcRenderer.invoke('get-settings')
+      if (data) {
+        setAppSettings(data)
+      }
+    } catch (error) {
+      console.error('Failed to load app settings:', error)
     }
   }
 
@@ -118,6 +131,28 @@ const SettingsPage = () => {
     }
   }
 
+  const handleSaveAppSettings = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setIsLoading(true)
+
+    const formData = new FormData(e.currentTarget)
+    const defaultConnectionTimeout = parseInt(formData.get('defaultConnectionTimeout') as string) || 30
+
+    try {
+      await ipcRenderer.invoke('update-settings', {
+        ...appSettings,
+        defaultConnectionTimeout
+      })
+      setAppSettings({ ...appSettings, defaultConnectionTimeout })
+      toast.success('Application settings updated successfully!')
+    } catch (error) {
+      console.error('Failed to save app settings:', error)
+      toast.error('Failed to save application settings. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleDelete = async () => {
     if (!deleteItem) return
 
@@ -162,6 +197,32 @@ const SettingsPage = () => {
 
       {/* Settings Content */}
       <div className="flex-1 overflow-auto p-6">
+        {/* Application Settings Section */}
+        <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4">Application Settings</h3>
+          <form onSubmit={handleSaveAppSettings} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="defaultConnectionTimeout">Max Connection Time (seconds)</Label>
+              <Input
+                id="defaultConnectionTimeout"
+                name="defaultConnectionTimeout"
+                type="number"
+                min="1"
+                max="300"
+                defaultValue={appSettings.defaultConnectionTimeout || 30}
+                placeholder="30"
+                required
+              />
+              <p className="text-sm text-gray-600">
+                Maximum time to wait for a database connection to establish before timing out.
+              </p>
+            </div>
+            <Button type="submit" disabled={isLoading}>
+              {isLoading ? 'Saving...' : 'Save Settings'}
+            </Button>
+          </form>
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Financial Years Section */}
           <div className="bg-white rounded-lg border border-gray-200 p-6">

@@ -16,6 +16,11 @@ export interface ElectronAPI {
   testConnection: (
     id: string
   ) => Promise<{ success: boolean; message: string }>;
+  bulkTestConnections: (
+    ids: string[]
+  ) => Promise<
+    Array<{ connectionId: string; success: boolean; message: string }>
+  >;
   bulkUploadConnections: (
     file: File
   ) => Promise<{ success: number; failed: number }>;
@@ -51,15 +56,20 @@ export interface Connection {
   name: string;
   server: string;
   database: string;
-  user: string;
+  user?: string;
   password?: string;
   port?: number;
-  encrypt?: boolean;
-  trustServerCertificate?: boolean;
-  status: "active" | "inactive";
-  lastUsed?: string;
-  createdAt: string;
-  updatedAt: string;
+  financialYear?: string;
+  group?: "self" | "partner";
+  partner?: string;
+  options?: {
+    trustServerCertificate?: boolean;
+    encrypt?: boolean;
+    [key: string]: any;
+  };
+  createdAt?: Date;
+  lastTested?: Date;
+  testStatus?: "connected" | "failed" | "not-tested";
 }
 
 export interface ConnectionInput {

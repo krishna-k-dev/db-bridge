@@ -128,8 +128,16 @@ export function EditConnectionForm({ onConnectionUpdated }: EditConnectionFormPr
       const result = await ipcRenderer.invoke('test-connection', id)
       if (result && result.success) {
         toast.success('Connection test successful!')
+        // Refresh parent data to show updated status
+        if (onConnectionUpdated) {
+          onConnectionUpdated()
+        }
       } else {
         toast.error(`Connection test failed: ${result?.error || 'Unknown error'}`)
+        // Refresh parent data to show updated status even on failure
+        if (onConnectionUpdated) {
+          onConnectionUpdated()
+        }
       }
     } catch (error) {
       console.error('Failed to test connection:', error)

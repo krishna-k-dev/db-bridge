@@ -108,6 +108,7 @@ export function CreateConnectionForm({ onConnectionCreated }: CreateConnectionFo
                 <Label htmlFor="name">Connection Name *</Label>
                 <Input
                   id="name"
+                  name="name"
                   placeholder="My SQL Server"
                   required
                 />
@@ -118,6 +119,7 @@ export function CreateConnectionForm({ onConnectionCreated }: CreateConnectionFo
                   <Label htmlFor="server">Server *</Label>
                   <Input
                     id="server"
+                    name="server"
                     placeholder="localhost, localhost:1433, 192.168.1.1:8000"
                     required
                   />
@@ -129,6 +131,7 @@ export function CreateConnectionForm({ onConnectionCreated }: CreateConnectionFo
                   <Label htmlFor="database">Database *</Label>
                   <Input
                     id="database"
+                    name="database"
                     placeholder="MyDatabase"
                     required
                   />
@@ -140,6 +143,7 @@ export function CreateConnectionForm({ onConnectionCreated }: CreateConnectionFo
                   <Label htmlFor="username">Username</Label>
                   <Input
                     id="username"
+                    name="username"
                     placeholder="sa (optional for Windows Auth)"
                   />
                 </div>
@@ -147,6 +151,7 @@ export function CreateConnectionForm({ onConnectionCreated }: CreateConnectionFo
                   <Label htmlFor="password">Password</Label>
                   <Input
                     id="password"
+                    name="password"
                     type="password"
                     placeholder="Optional"
                   />
@@ -157,6 +162,7 @@ export function CreateConnectionForm({ onConnectionCreated }: CreateConnectionFo
                 <input
                   type="checkbox"
                   id="trust-cert"
+                  name="trust-cert"
                   defaultChecked
                   className="h-4 w-4 border border-gray-300 rounded"
                 />

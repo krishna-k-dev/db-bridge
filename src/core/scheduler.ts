@@ -365,13 +365,158 @@ export class JobScheduler {
       throw new Error(`Connection not found: ${connectionId}`);
     }
 
-    return await this.executor.testConnection(connection);
+    const result = await this.executor.testConnection(connection);
+
+    // Update connection test status and timestamp
+    connection.lastTested = new Date();
+    connection.testStatus = result.success ? "connected" : "failed";
+
+    // Save the updated connection
+    this.saveConfig();
+
+    return result;
+  }
+
+  /**
+   * Test multiple connections in true parallel with per-connection timeout.
+   * All connections start testing simultaneously, total time <= timeout.
+   * Returns array of results { connectionId, success, message }
+   */
+  async bulkTestConnections(
+    connectionIds: string[],
+    concurrency = 5 // Kept for backward compatibility but not used in parallel mode
+  ): Promise<{ connectionId: string; success: boolean; message: string }[]> {
+    // Get timeout from settings (in seconds), minimum 30 seconds
+    const settingsTimeoutSec = this.settings?.defaultConnectionTimeout || 30;
+    const timeoutMs = Math.max(settingsTimeoutSec * 1000, 30000); // Minimum 30 seconds
+
+    // Create test promises for all connections - they will run in parallel
+    const testPromises = connectionIds.map(async (connectionId) => {
+      const startTime = Date.now();
+      const connection = this.getConnection(connectionId);
+
+      if (!connection) {
+        return {
+          connectionId,
+          success: false,
+          message: "Connection not found",
+          connection: null,
+        };
+      }
+
+      let result;
+      try {
+        logger.info(`Testing connection: ${connection.name} (${connectionId})`);
+
+        // Create a timeout promise that rejects
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => {
+            logger.warn(
+              `Connection timeout: ${connection.name} after ${timeoutMs}ms`
+            );
+            reject(new Error(`Timeout after ${timeoutMs}ms`));
+          }, timeoutMs)
+        );
+
+        // Race the test against timeout
+        result = await Promise.race([
+          this.executor.testConnection(connection),
+          timeoutPromise,
+        ]);
+
+        const duration = Date.now() - startTime;
+        logger.info(
+          `Connection test completed: ${connection.name} - ${
+            result.success ? "SUCCESS" : "FAILED"
+          } (${duration}ms)`
+        );
+      } catch (err: any) {
+        const duration = Date.now() - startTime;
+        logger.error(
+          `Connection test error: ${connection.name} - ${err?.message} (${duration}ms)`,
+          connectionId,
+          err
+        );
+        result = { success: false, message: err?.message || String(err) };
+      }
+
+      // Update connection status & timestamp
+      connection.lastTested = new Date();
+      connection.testStatus = result.success ? "connected" : "failed";
+
+      return {
+        connectionId,
+        success: !!result.success,
+        message: result.message,
+        connection,
+      };
+    });
+
+    // Wait for ALL tests to complete (not settle early)
+    logger.info(
+      `Waiting for all ${testPromises.length} connection tests to complete...`
+    );
+    const settledResults = await Promise.allSettled(testPromises);
+    logger.info(`All connection tests completed`);
+
+    // Process results
+    const results: {
+      connectionId: string;
+      success: boolean;
+      message: string;
+    }[] = [];
+    const updatedConnections: SQLConnection[] = [];
+
+    settledResults.forEach((settled, index) => {
+      if (settled.status === "fulfilled") {
+        const { connectionId, success, message, connection } = settled.value;
+        results.push({ connectionId, success, message });
+        if (connection) {
+          updatedConnections.push(connection);
+        }
+      } else {
+        // This shouldn't happen with our implementation, but handle it just in case
+        logger.error(
+          "Unexpected rejection in bulk test",
+          connectionIds[index],
+          settled.reason
+        );
+        results.push({
+          connectionId: connectionIds[index] || "unknown",
+          success: false,
+          message: `Unexpected error: ${settled.reason}`,
+        });
+      }
+    });
+
+    logger.info(
+      `Bulk test results: ${
+        results.filter((r) => r.success).length
+      } succeeded, ${results.filter((r) => !r.success).length} failed`
+    );
+
+    // Save config once after all tests complete
+    try {
+      this.saveConfig();
+    } catch (e) {
+      logger.error(
+        "Failed to save config after bulk test",
+        undefined,
+        e as Error
+      );
+    }
+
+    return results;
   }
 
   getSettings(): any {
     try {
       if (!fs.existsSync(this.configPath)) {
-        return { financialYears: [], partners: [] };
+        return {
+          financialYears: [],
+          partners: [],
+          defaultConnectionTimeout: 30, // Default 30 seconds
+        };
       }
 
       const configData = fs.readFileSync(this.configPath, "utf-8");
@@ -380,10 +525,16 @@ export class JobScheduler {
       return {
         financialYears: config.settings?.financialYears || [],
         partners: config.settings?.partners || [],
+        defaultConnectionTimeout:
+          config.settings?.defaultConnectionTimeout || 30, // Default 30 seconds
       };
     } catch (error: any) {
       logger.error("Failed to get settings", undefined, error);
-      return { financialYears: [], partners: [] };
+      return {
+        financialYears: [],
+        partners: [],
+        defaultConnectionTimeout: 30, // Default 30 seconds
+      };
     }
   }
 

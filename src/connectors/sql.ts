@@ -4,16 +4,54 @@ import { logger } from "../core/logger";
 
 export class SQLConnector {
   private pool: sql.ConnectionPool | null = null;
+  private static activeConnections = 0;
+  private static readonly MAX_CONCURRENT_CONNECTIONS = 20;
 
   async connect(config: SQLConnection): Promise<void> {
+    // Wait if too many concurrent connections
+    while (
+      SQLConnector.activeConnections >= SQLConnector.MAX_CONCURRENT_CONNECTIONS
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+
     try {
-      this.pool = await sql.connect(config as sql.config);
+      SQLConnector.activeConnections++;
+
+      // Add connection timeout to config
+      const connectionConfig = {
+        ...config,
+        connectionTimeout: 10000, // 10 seconds - give connections enough time
+        requestTimeout: 15000, // 15 seconds
+        pool: {
+          max: 5,
+          min: 0,
+          idleTimeoutMillis: 10000, // 10 seconds
+        },
+      } as sql.config;
+
+      this.pool = await sql.connect(connectionConfig);
+
+      // Increase max listeners to prevent warning during parallel tests
+      if (
+        this.pool &&
+        typeof (this.pool as any).setMaxListeners === "function"
+      ) {
+        (this.pool as any).setMaxListeners(30);
+      }
+
       logger.info("Connected to SQL Server", undefined, {
         server: config.server,
         database: config.database,
       });
     } catch (error) {
-      logger.error("Failed to connect to SQL Server", undefined, error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error(
+        `Failed to connect to SQL Server (${config.server}/${config.database}): ${errorMessage}`,
+        undefined,
+        error
+      );
       throw error;
     }
   }
@@ -39,14 +77,22 @@ export class SQLConnector {
       const result = await request.query(query);
       return result.recordset;
     } catch (error) {
-      logger.error("Query execution failed", undefined, error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      logger.error(`Query execution failed: ${errorMessage}`, undefined, error);
       throw error;
     }
   }
 
   async disconnect(): Promise<void> {
     if (this.pool) {
-      await this.pool.close();
+      try {
+        await this.pool.close();
+        SQLConnector.activeConnections--;
+      } catch (error) {
+        SQLConnector.activeConnections--;
+        logger.error("Failed to disconnect from SQL Server", undefined, error);
+      }
       this.pool = null;
       logger.info("Disconnected from SQL Server");
     }
