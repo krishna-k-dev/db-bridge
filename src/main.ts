@@ -1,13 +1,88 @@
 import { app, BrowserWindow, ipcMain, dialog, shell } from "electron";
 import * as remoteMain from "@electron/remote/main";
 import * as path from "path";
+import * as fs from "fs";
 import { JobScheduler } from "./core/scheduler";
 import { logger } from "./core/logger";
 import { Job } from "./types";
+import { ProgressStream } from "./core/ProgressStream";
+import { ConnectionPoolManager } from "./connectors/ConnectionPoolManager";
+import { JobQueue } from "./core/JobQueue";
 
 let mainWindow: BrowserWindow | null = null;
 let splash: BrowserWindow | null = null;
 let scheduler: JobScheduler;
+let progressStream: ProgressStream;
+let connectionPoolManager: ConnectionPoolManager;
+let jobQueue: JobQueue;
+
+// Job history storage
+interface JobExecutionHistory {
+  id: string;
+  jobId: string;
+  jobName: string;
+  status: "completed" | "failed" | "running";
+  startedAt: Date;
+  completedAt?: Date;
+  duration?: number;
+  totalConnections: number;
+  completedConnections: number;
+  failedConnections: number;
+  errors?: string[];
+  result?: any;
+}
+
+let jobHistory: JobExecutionHistory[] = [];
+const jobHistoryPath = path.join(app.getPath("userData"), "job-history.json");
+
+// Load job history from disk
+function loadJobHistory() {
+  try {
+    if (fs.existsSync(jobHistoryPath)) {
+      const data = fs.readFileSync(jobHistoryPath, "utf-8");
+      jobHistory = JSON.parse(data);
+    }
+  } catch (error) {
+    console.error("Failed to load job history:", error);
+    jobHistory = [];
+  }
+}
+
+// Save job history to disk
+function saveJobHistory() {
+  try {
+    fs.writeFileSync(jobHistoryPath, JSON.stringify(jobHistory, null, 2));
+  } catch (error) {
+    console.error("Failed to save job history:", error);
+  }
+}
+
+// Add or update job in history
+function addJobToHistory(jobRecord: JobExecutionHistory) {
+  // Find existing record for this job
+  const existingIndex = jobHistory.findIndex(
+    (h) => h.jobId === jobRecord.jobId
+  );
+
+  if (existingIndex !== -1) {
+    // Update existing record
+    jobHistory[existingIndex] = jobRecord;
+  } else {
+    // Add new record to beginning
+    jobHistory.unshift(jobRecord);
+  }
+
+  // Keep only last 1000 records
+  if (jobHistory.length > 1000) {
+    jobHistory = jobHistory.slice(0, 1000);
+  }
+  saveJobHistory();
+
+  // Notify renderer
+  if (mainWindow) {
+    mainWindow.webContents.send("job:history:updated");
+  }
+}
 
 function createSplash(): void {
   splash = new BrowserWindow({
@@ -63,6 +138,11 @@ function createWindow(): void {
         splash = null;
       }
       mainWindow!.show();
+
+      // Set mainWindow for progress streaming after window is ready
+      if (progressStream) {
+        progressStream.setMainWindow(mainWindow);
+      }
     }, 2000); // 2000 milliseconds = 2 seconds
   });
 
@@ -79,6 +159,36 @@ function createWindow(): void {
 app.whenReady().then(() => {
   // Initialize @electron/remote
   remoteMain.initialize();
+
+  // Load job history
+  loadJobHistory();
+
+  // Initialize core services
+  progressStream = ProgressStream.getInstance();
+  connectionPoolManager = ConnectionPoolManager.getInstance();
+  jobQueue = JobQueue.getInstance();
+
+  // Listen for job completions to add to history
+  progressStream.on("job:finished", (data: any) => {
+    const { jobId, status, progress, result, error, duration } = data;
+
+    const historyRecord: JobExecutionHistory = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      jobId,
+      jobName: progress.jobName,
+      status,
+      startedAt: progress.startedAt,
+      completedAt: progress.completedAt,
+      duration,
+      totalConnections: progress.totalConnections,
+      completedConnections: progress.completedConnections,
+      failedConnections: progress.failedConnections,
+      errors: progress.errors,
+      result,
+    };
+
+    addJobToHistory(historyRecord);
+  });
 
   // Initialize scheduler
   scheduler = new JobScheduler();
@@ -207,6 +317,40 @@ app.whenReady().then(() => {
 
   ipcMain.handle("update-settings", (_event, settings: any) => {
     scheduler.updateSettings(settings);
+
+    // Apply settings to ConnectionPoolManager
+    if (settings.dbPoolMax || settings.defaultConnectionTimeout) {
+      connectionPoolManager.updateConfig({
+        poolMax: settings.dbPoolMax,
+        connectionTimeout: settings.defaultConnectionTimeout * 1000, // convert to ms
+      });
+    }
+
+    // Apply settings to JobQueue
+    if (settings.jobQueueMaxConcurrent) {
+      jobQueue.updateConfig({
+        maxConcurrent: settings.jobQueueMaxConcurrent,
+      });
+    }
+
+    // Update environment variables for runtime configuration
+    if (settings.dbPoolMax)
+      process.env.DB_POOL_MAX = String(settings.dbPoolMax);
+    if (settings.maxConcurrentConnections)
+      process.env.MAX_CONCURRENT_CONNECTIONS = String(
+        settings.maxConcurrentConnections
+      );
+    if (settings.jobQueueMaxConcurrent)
+      process.env.JOB_QUEUE_MAX_CONCURRENT = String(
+        settings.jobQueueMaxConcurrent
+      );
+
+    logger.info(
+      "Settings updated and applied to system components",
+      undefined,
+      settings
+    );
+
     return { success: true };
   });
 
@@ -277,6 +421,70 @@ app.whenReady().then(() => {
     }
   });
 
+  // Monitoring and Metrics Handlers
+  ipcMain.handle("get-pool-metrics", () => {
+    try {
+      return connectionPoolManager.getMetrics();
+    } catch (error: any) {
+      logger.error("Failed to get pool metrics", undefined, error);
+      return { error: error.message };
+    }
+  });
+
+  ipcMain.handle("get-pool-info", () => {
+    try {
+      return connectionPoolManager.getPoolInfo();
+    } catch (error: any) {
+      logger.error("Failed to get pool info", undefined, error);
+      return { error: error.message };
+    }
+  });
+
+  ipcMain.handle("get-queue-metrics", () => {
+    try {
+      return jobQueue.getMetrics();
+    } catch (error: any) {
+      logger.error("Failed to get queue metrics", undefined, error);
+      return { error: error.message };
+    }
+  });
+
+  ipcMain.handle("get-running-jobs", () => {
+    try {
+      return jobQueue.getRunningJobs();
+    } catch (error: any) {
+      logger.error("Failed to get running jobs", undefined, error);
+      return { error: error.message };
+    }
+  });
+
+  ipcMain.handle("get-pending-jobs", () => {
+    try {
+      return jobQueue.getPendingJobs();
+    } catch (error: any) {
+      logger.error("Failed to get pending jobs", undefined, error);
+      return { error: error.message };
+    }
+  });
+
+  ipcMain.handle("get-job-progress", (_event, jobId: string) => {
+    try {
+      return progressStream.getJobProgress(jobId);
+    } catch (error: any) {
+      logger.error("Failed to get job progress", undefined, error);
+      return { error: error.message };
+    }
+  });
+
+  ipcMain.handle("get-all-progress", () => {
+    try {
+      return progressStream.getAllProgress();
+    } catch (error: any) {
+      logger.error("Failed to get all progress", undefined, error);
+      return { error: error.message };
+    }
+  });
+
   // Window Control Handlers
   ipcMain.handle("minimize-window", () => {
     if (mainWindow) {
@@ -304,9 +512,37 @@ app.whenReady().then(() => {
     }
   });
 
-  // Now that handlers are registered, create the windows (prevents renderer calling IPC before handlers exist)
-  createSplash();
-  createWindow();
+  // Job History Handlers
+  ipcMain.handle("get-job-history", () => {
+    try {
+      return jobHistory;
+    } catch (error: any) {
+      logger.error("Failed to get job history", undefined, error);
+      return [];
+    }
+  });
+
+  ipcMain.handle("delete-job-history", (_event, ids: string[]) => {
+    try {
+      jobHistory = jobHistory.filter((h) => !ids.includes(h.id));
+      saveJobHistory();
+      return { success: true };
+    } catch (error: any) {
+      logger.error("Failed to delete job history", undefined, error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle("clear-job-history", () => {
+    try {
+      jobHistory = [];
+      saveJobHistory();
+      return { success: true };
+    } catch (error: any) {
+      logger.error("Failed to clear job history", undefined, error);
+      return { success: false, error: error.message };
+    }
+  });
 
   ipcMain.handle("open-file-location", async (_event, filePath: string) => {
     try {
@@ -324,6 +560,10 @@ app.whenReady().then(() => {
       mainWindow.close();
     }
   });
+
+  // Now that handlers are registered, create the windows (prevents renderer calling IPC before handlers exist)
+  createSplash();
+  createWindow();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

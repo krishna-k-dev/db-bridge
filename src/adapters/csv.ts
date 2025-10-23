@@ -85,7 +85,7 @@ export class CSVAdapter implements DestinationAdapter {
           fs.existsSync(actualFilePath) &&
           fs.statSync(actualFilePath).isDirectory()
         ) {
-          // It's a directory - add filename
+          // It's a directory - add filename using database name (from connectionName meta which now contains db name)
           actualFilePath = path.join(
             actualFilePath,
             `${meta.connectionName || "export"}_${Date.now()}.csv`

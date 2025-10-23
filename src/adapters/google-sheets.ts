@@ -51,17 +51,9 @@ export class GoogleSheetsAdapter implements DestinationAdapter {
         data,
         connectionFailedMessage,
       } of dataWithMeta) {
-        // Format: ConnectionName-FinancialYear-Group-PartnerName
-        let sheetName = connection.name;
-        if (connection.financialYear) {
-          sheetName += `-${connection.financialYear}`;
-        }
-        if (connection.group) {
-          sheetName += `-${connection.group}`;
-          if (connection.group === "partner" && connection.partner) {
-            sheetName += `-${connection.partner}`;
-          }
-        }
+        // Use only database name for sheet name
+        let sheetName = connection.database || connection.name;
+
         // Truncate to 100 chars for Google Sheets limit
         sheetName = sheetName.substring(0, 100);
 

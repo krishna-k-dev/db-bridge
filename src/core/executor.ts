@@ -3,8 +3,18 @@ import { Job, JobMeta, SQLConnection } from "../types";
 import { getAdapter } from "../adapters";
 import { shouldTrigger } from "./trigger";
 import { logger } from "./logger";
+import { ProgressStream } from "./ProgressStream";
+import { DataBuffer } from "./DataBuffer";
 
 export class JobExecutor {
+  private progressStream: ProgressStream;
+  private dataBuffer: DataBuffer;
+
+  constructor() {
+    this.progressStream = ProgressStream.getInstance();
+    this.dataBuffer = DataBuffer.getInstance();
+  }
+
   async executeJobMultiConnection(
     job: Job,
     connections: SQLConnection[]
@@ -23,6 +33,32 @@ export class JobExecutor {
       job.id
     );
 
+    // Initialize progress tracking
+    this.progressStream.startJob(job.id, job.name, connections.length);
+    this.progressStream.updateJobStep(
+      job.id,
+      "Executing queries on connections"
+    );
+
+    // HYBRID BATCHING: Initialize buffer for streaming destinations
+    const streamingDestinationTypes = [
+      "google_sheets",
+      "webhook",
+      "custom_api",
+    ];
+    const hasStreamingDestinations = job.destinations.some((d) =>
+      streamingDestinationTypes.includes(d.type)
+    );
+
+    // Start buffering if streaming destinations exist
+    if (hasStreamingDestinations) {
+      this.dataBuffer.startBuffering(job.id, job);
+      logger.info(
+        `📦 Hybrid batching enabled: Data will be sent every 5 seconds or when buffer reaches 100 rows`,
+        job.id
+      );
+    }
+
     // Execute query on all connections and collect data with metadata
     const dataWithMeta: Array<{
       connection: SQLConnection;
@@ -33,21 +69,68 @@ export class JobExecutor {
     for (const connection of connections) {
       const connector = new SQLConnector();
 
+      // Start tracking this connection
+      this.progressStream.startConnection(
+        job.id,
+        connection.id,
+        connection.name
+      );
+
       try {
+        this.progressStream.updateConnectionProgress(job.id, connection.id, {
+          step: "Connecting to database",
+        });
+
         await connector.connect(connection);
+
+        this.progressStream.updateConnectionProgress(job.id, connection.id, {
+          step: "Executing query",
+        });
+
         const data = await connector.executeQuery(job.query);
+
         logger.info(
           `Query on ${connection.name} returned ${data.length} rows`,
           job.id
         );
 
+        this.progressStream.updateConnectionProgress(job.id, connection.id, {
+          step: "Query completed",
+          rowsProcessed: data.length,
+          totalRows: data.length,
+        });
+
         dataWithMeta.push({ connection, data });
+
+        // HYBRID BATCHING: Add data to buffer (will auto-flush every 5s or at 100 rows)
+        if (hasStreamingDestinations && data.length > 0) {
+          this.progressStream.updateConnectionProgress(job.id, connection.id, {
+            step: "Buffering data for batch transfer",
+          });
+
+          await this.dataBuffer.addToBuffer(job.id, job, connection, data);
+        }
+
+        // Mark connection as completed
+        this.progressStream.completeConnection(
+          job.id,
+          connection.id,
+          data.length
+        );
       } catch (error: any) {
         logger.error(
           `Failed to execute on ${connection.name}: ${error.message}`,
           job.id,
           error
         );
+
+        // Mark connection as failed
+        this.progressStream.failConnection(
+          job.id,
+          connection.id,
+          error.message
+        );
+
         // Include failed connection with error message
         dataWithMeta.push({
           connection,
@@ -61,11 +144,21 @@ export class JobExecutor {
 
     if (dataWithMeta.length === 0) {
       logger.warn("No data retrieved from any connection", job.id);
+      this.progressStream.failJob(
+        job.id,
+        "No data retrieved from any connection"
+      );
       return;
     }
 
     // Update last run time
     job.lastRun = new Date();
+
+    // Update progress for destination sending
+    this.progressStream.updateJobStep(
+      job.id,
+      `Sending to ${job.destinations.length} destination(s)`
+    );
 
     // Send to all destinations with smart handling
     for (const destination of job.destinations) {
@@ -77,6 +170,10 @@ export class JobExecutor {
       }
 
       logger.info(`Sending to ${destination.type}...`, job.id);
+      this.progressStream.updateJobStep(
+        job.id,
+        `Sending to ${destination.type}`
+      );
 
       try {
         // FORCE multi-connection - check multiple ways
@@ -143,7 +240,7 @@ export class JobExecutor {
               runTime: job.lastRun,
               rowCount: data.length,
               connectionId: connection.id,
-              connectionName: connection.name,
+              connectionName: connection.database || connection.name, // Use database name
               financialYear: connection.financialYear || "",
               group: connection.group || "self",
               partner:
@@ -172,7 +269,24 @@ export class JobExecutor {
       }
     }
 
+    // HYBRID BATCHING: Stop buffer and flush remaining data
+    if (hasStreamingDestinations) {
+      logger.info(
+        `🛑 Job completed, flushing remaining buffered data...`,
+        job.id
+      );
+      await this.dataBuffer.stopBuffering(job.id);
+    }
+
     logger.info(`Job ${job.name} completed successfully`, job.id);
+    this.progressStream.completeJob(job.id, {
+      totalConnections: connections.length,
+      successfulConnections: dataWithMeta.filter(
+        (d) => !d.connectionFailedMessage
+      ).length,
+      failedConnections: dataWithMeta.filter((d) => d.connectionFailedMessage)
+        .length,
+    });
   }
 
   async executeJob(
@@ -190,15 +304,33 @@ export class JobExecutor {
 
     logger.info(`Starting job: ${job.name}`, job.id);
 
+    // Initialize progress tracking for single connection
+    this.progressStream.startJob(job.id, job.name, 1);
+    this.progressStream.startConnection(job.id, connection.id, connection.name);
+
     const connector = new SQLConnector();
 
     try {
       // Connect to database
+      this.progressStream.updateConnectionProgress(job.id, connection.id, {
+        step: "Connecting to database",
+      });
+
       await connector.connect(connection);
 
       // Execute query
+      this.progressStream.updateConnectionProgress(job.id, connection.id, {
+        step: "Executing query",
+      });
+
       const data = await connector.executeQuery(job.query);
       logger.info(`Query returned ${data.length} rows`, job.id);
+
+      this.progressStream.updateConnectionProgress(job.id, connection.id, {
+        step: "Processing results",
+        rowsProcessed: data.length,
+        totalRows: data.length,
+      });
 
       // Check if we should trigger based on data
       if (!shouldTrigger(job, data)) {
@@ -206,6 +338,15 @@ export class JobExecutor {
           "Trigger condition not met (data unchanged), skipping send",
           job.id
         );
+        this.progressStream.completeConnection(
+          job.id,
+          connection.id,
+          data.length
+        );
+        this.progressStream.completeJob(job.id, {
+          skipped: true,
+          reason: "Trigger condition not met",
+        });
         return;
       }
 
@@ -219,8 +360,13 @@ export class JobExecutor {
         runTime: job.lastRun,
         rowCount: data.length,
         connectionId: connection.id,
-        connectionName: connection.name,
+        connectionName: connection.database || connection.name, // Use database name
       };
+
+      this.progressStream.updateJobStep(
+        job.id,
+        `Sending to ${job.destinations.length} destination(s)`
+      );
 
       // Send to all destinations
       for (const destination of job.destinations) {
@@ -232,6 +378,11 @@ export class JobExecutor {
         }
 
         logger.info(`Sending to ${destination.type}...`, job.id);
+        this.progressStream.updateJobStep(
+          job.id,
+          `Sending to ${destination.type}`
+        );
+
         const result = await adapter.send(data, destination, meta);
 
         if (result.success) {
@@ -242,8 +393,16 @@ export class JobExecutor {
       }
 
       logger.info(`Job ${job.name} completed successfully`, job.id);
+      this.progressStream.completeConnection(
+        job.id,
+        connection.id,
+        data.length
+      );
+      this.progressStream.completeJob(job.id, { rowsProcessed: data.length });
     } catch (error: any) {
       logger.error(`Job ${job.name} failed: ${error.message}`, job.id, error);
+      this.progressStream.failConnection(job.id, connection.id, error.message);
+      this.progressStream.failJob(job.id, error.message);
       throw error;
     } finally {
       await connector.disconnect();
@@ -283,6 +442,12 @@ export class JobExecutor {
       await connector.disconnect();
     }
   }
+
+  /**
+   * DEPRECATED - Now using DataBuffer for hybrid batching
+   * Old method kept for reference only
+   */
+  // private async streamDataToDestinations() {}
 
   async testConnection(
     connection: SQLConnection

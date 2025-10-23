@@ -81,6 +81,8 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
   const [filterPartner, setFilterPartner] = useState<string>('all')
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [isBulkTesting, setIsBulkTesting] = useState(false)
+  const [testingProgress, setTestingProgress] = useState<{ [key: string]: 'pending' | 'testing' | 'success' | 'failed' }>({})
+  const [showTestMonitor, setShowTestMonitor] = useState(false)
 
   const loadConnections = async () => {
     try {
@@ -187,32 +189,45 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
     }
 
     setIsBulkTesting(true)
+    setShowTestMonitor(true)
+    
+    // Initialize all connections as testing (parallel execution)
+    const initialProgress: { [key: string]: 'pending' | 'testing' | 'success' | 'failed' } = {}
+    filteredConnections.forEach(c => {
+      initialProgress[c.id] = 'testing'
+    })
+    setTestingProgress(initialProgress)
 
     try {
-      // Call bulk test with only filtered connections
-      const results = await ipcRenderer.invoke('bulk-test-connections', filteredConnections.map((c) => c.id))
+      // Test all connections in parallel for speed
+      const results = await Promise.all(
+        filteredConnections.map(async (connection) => {
+          try {
+            const result = await ipcRenderer.invoke('test-connection', connection.id)
+            const status = result.success ? 'success' : 'failed'
+            setTestingProgress(prev => ({ ...prev, [connection.id]: status }))
+            return { id: connection.id, success: result.success }
+          } catch (error) {
+            setTestingProgress(prev => ({ ...prev, [connection.id]: 'failed' }))
+            return { id: connection.id, success: false }
+          }
+        })
+      )
 
-      let successCount = 0
-      let failCount = 0
-      const resultMessages: string[] = []
+      const successCount = results.filter(r => r.success).length
+      const failCount = results.filter(r => !r.success).length
 
-      results.forEach((result: any) => {
-        const connection = filteredConnections.find((c) => c.id === result.connectionId)
-        const connectionName = connection?.name || result.connectionId
-
-        if (result.success) {
-          successCount++
-          resultMessages.push(`${connectionName}: ✅ Connected`)
-        } else {
-          failCount++
-          resultMessages.push(`${connectionName}: ❌ Failed - ${result.message}`)
-        }
-      })
-
-      // Reload connections to get updated status for all tested connections
+      // Reload connections to get updated status
       await loadConnections()
 
-      const summary = `Test Results:\n${resultMessages.join('\n')}\n\nSummary: ${successCount} successful, ${failCount} failed`
+      const summary = `Test completed: ${successCount} successful, ${failCount} failed`
+      
+      // Keep monitor open for 2 more seconds to show results
+      setTimeout(() => {
+        setShowTestMonitor(false)
+        setIsBulkTesting(false)
+      }, 2000)
+
       return summary
     } catch (error: any) {
       console.error('Bulk test invocation failed:', error)
@@ -806,6 +821,45 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
               <Upload className="w-4 h-4" />
               Select File
             </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Test All Connections Monitor */}
+      <Dialog open={showTestMonitor} onOpenChange={setShowTestMonitor}>
+        <DialogContent className="max-w-2xl max-h-[600px]">
+          <DialogHeader>
+            <DialogTitle>Testing Connections</DialogTitle>
+            <DialogDescription>
+              Testing {filteredConnections.length} connections...
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 space-y-2 max-h-[400px] overflow-y-auto">
+            {filteredConnections.map(conn => {
+              const status = testingProgress[conn.id] || 'pending'
+              return (
+                <div key={conn.id} className="flex items-center justify-between p-3 border rounded-lg bg-gray-50">
+                  <div className="flex-1">
+                    <div className="font-medium text-sm">{conn.name}</div>
+                    <div className="text-xs text-gray-600">{conn.server} / {conn.database}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {status === 'pending' && (
+                      <span className="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded-full">Pending</span>
+                    )}
+                    {status === 'testing' && (
+                      <span className="px-2 py-1 text-xs bg-blue-200 text-blue-700 rounded-full animate-pulse">Testing...</span>
+                    )}
+                    {status === 'success' && (
+                      <span className="px-2 py-1 text-xs bg-green-200 text-green-700 rounded-full">✓ Connected</span>
+                    )}
+                    {status === 'failed' && (
+                      <span className="px-2 py-1 text-xs bg-red-200 text-red-700 rounded-full">✗ Failed</span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
           </div>
         </DialogContent>
       </Dialog>

@@ -1,13 +1,35 @@
 import sql from "mssql";
 import { SQLConnection } from "../types";
 import { logger } from "../core/logger";
+import { ConnectionPoolManager } from "./ConnectionPoolManager";
 
 export class SQLConnector {
   private pool: sql.ConnectionPool | null = null;
+  private config: SQLConnection | null = null;
   private static activeConnections = 0;
-  private static readonly MAX_CONCURRENT_CONNECTIONS = 20;
+  private static readonly MAX_CONCURRENT_CONNECTIONS = Number(
+    process.env.MAX_CONCURRENT_CONNECTIONS || 50
+  );
+
+  private static decrementActiveConnections(): void {
+    SQLConnector.activeConnections = Math.max(
+      0,
+      SQLConnector.activeConnections - 1
+    );
+  }
 
   async connect(config: SQLConnection): Promise<void> {
+    // If already connected with same config, return
+    if (
+      this.pool &&
+      (this.pool as any).connected &&
+      this.config &&
+      this.config.server === config.server &&
+      this.config.database === config.database
+    ) {
+      return;
+    }
+
     // Wait if too many concurrent connections
     while (
       SQLConnector.activeConnections >= SQLConnector.MAX_CONCURRENT_CONNECTIONS
@@ -18,26 +40,17 @@ export class SQLConnector {
     try {
       SQLConnector.activeConnections++;
 
-      // Add connection timeout to config
-      const connectionConfig = {
-        ...config,
-        connectionTimeout: 10000, // 10 seconds - give connections enough time
-        requestTimeout: 15000, // 15 seconds
-        pool: {
-          max: 5,
-          min: 0,
-          idleTimeoutMillis: 10000, // 10 seconds
-        },
-      } as sql.config;
-
-      this.pool = await sql.connect(connectionConfig);
+      // Use shared pool manager
+      const manager = ConnectionPoolManager.getInstance();
+      this.pool = await manager.acquire(config);
+      this.config = config;
 
       // Increase max listeners to prevent warning during parallel tests
       if (
         this.pool &&
         typeof (this.pool as any).setMaxListeners === "function"
       ) {
-        (this.pool as any).setMaxListeners(30);
+        (this.pool as any).setMaxListeners(200);
       }
 
       logger.info("Connected to SQL Server", undefined, {
@@ -45,6 +58,9 @@ export class SQLConnector {
         database: config.database,
       });
     } catch (error) {
+      // Release reserved slot on error
+      SQLConnector.decrementActiveConnections();
+
       const errorMessage =
         error instanceof Error ? error.message : String(error);
       logger.error(
@@ -85,20 +101,27 @@ export class SQLConnector {
   }
 
   async disconnect(): Promise<void> {
-    if (this.pool) {
+    if (this.pool && this.config) {
       try {
-        await this.pool.close();
-        SQLConnector.activeConnections--;
+        // Release to pool manager (may close later when no users)
+        const manager = ConnectionPoolManager.getInstance();
+        manager.release(this.config);
       } catch (error) {
-        SQLConnector.activeConnections--;
-        logger.error("Failed to disconnect from SQL Server", undefined, error);
+        logger.error("Failed to release SQL pool", undefined, error);
+      } finally {
+        SQLConnector.decrementActiveConnections();
+        this.pool = null;
+        this.config = null;
+        logger.info("Disconnected from SQL Server (released to manager)");
       }
-      this.pool = null;
-      logger.info("Disconnected from SQL Server");
     }
   }
 
   isConnected(): boolean {
-    return this.pool !== null && this.pool.connected;
+    return this.pool !== null && (this.pool as any).connected;
+  }
+
+  static getActiveConnections(): number {
+    return SQLConnector.activeConnections;
   }
 }

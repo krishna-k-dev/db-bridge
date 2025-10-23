@@ -1,4 +1,4 @@
-import { Cable, Settings, ClipboardList, Activity } from 'lucide-react'
+import { Cable, Settings, ClipboardList, Activity, BarChart3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Link, useLocation } from 'react-router-dom'
 
@@ -16,6 +16,7 @@ const Sidebar = ({ connectionsCount, jobsCount, isOpen = true, onToggle }: Sideb
     { id: 'connections', label: 'Connections', icon: Cable, path: '/connections', badge: connectionsCount },
     { id: 'jobs', label: 'Jobs', icon: Settings, path: '/jobs', badge: jobsCount },
     { id: 'logs', label: 'Logs', icon: ClipboardList, path: '/logs' },
+    { id: 'monitoring', label: 'Monitoring', icon: BarChart3, path: '/monitoring' },
     { id: 'settings', label: 'Settings', icon: Settings, path: '/settings' },
   ]
 

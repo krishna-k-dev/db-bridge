@@ -137,13 +137,31 @@ const SettingsPage = () => {
 
     const formData = new FormData(e.currentTarget)
     const defaultConnectionTimeout = parseInt(formData.get('defaultConnectionTimeout') as string) || 30
+    const dbPoolMax = parseInt(formData.get('dbPoolMax') as string) || 20
+    const maxConcurrentConnections = parseInt(formData.get('maxConcurrentConnections') as string) || 50
+    const jobQueueMaxConcurrent = parseInt(formData.get('jobQueueMaxConcurrent') as string) || 10
+    const enableProgressStreaming = formData.get('enableProgressStreaming') === 'on'
+    const logVerbosity = formData.get('logVerbosity') as string || 'info'
 
     try {
       await ipcRenderer.invoke('update-settings', {
         ...appSettings,
-        defaultConnectionTimeout
+        defaultConnectionTimeout,
+        dbPoolMax,
+        maxConcurrentConnections,
+        jobQueueMaxConcurrent,
+        enableProgressStreaming,
+        logVerbosity
       })
-      setAppSettings({ ...appSettings, defaultConnectionTimeout })
+      setAppSettings({ 
+        ...appSettings, 
+        defaultConnectionTimeout, 
+        dbPoolMax,
+        maxConcurrentConnections,
+        jobQueueMaxConcurrent,
+        enableProgressStreaming,
+        logVerbosity
+      })
       toast.success('Application settings updated successfully!')
     } catch (error) {
       console.error('Failed to save app settings:', error)
@@ -200,23 +218,131 @@ const SettingsPage = () => {
         {/* Application Settings Section */}
         <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Application Settings</h3>
-          <form onSubmit={handleSaveAppSettings} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="defaultConnectionTimeout">Max Connection Time (seconds)</Label>
-              <Input
-                id="defaultConnectionTimeout"
-                name="defaultConnectionTimeout"
-                type="number"
-                min="1"
-                max="300"
-                defaultValue={appSettings.defaultConnectionTimeout || 30}
-                placeholder="30"
-                required
-              />
-              <p className="text-sm text-gray-600">
-                Maximum time to wait for a database connection to establish before timing out.
-              </p>
+          <form onSubmit={handleSaveAppSettings} className="space-y-6">
+            {/* Connection Settings */}
+            <div className="border-b pb-4">
+              <h4 className="text-md font-medium text-gray-800 mb-3">Connection Settings</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="defaultConnectionTimeout">Connection Timeout (seconds)</Label>
+                  <Input
+                    id="defaultConnectionTimeout"
+                    name="defaultConnectionTimeout"
+                    type="number"
+                    min="1"
+                    max="300"
+                    defaultValue={appSettings.defaultConnectionTimeout || 30}
+                    placeholder="30"
+                    required
+                  />
+                  <p className="text-sm text-gray-600">
+                    Maximum time to wait for a database connection.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="dbPoolMax">Pool Size (per server)</Label>
+                  <Input
+                    id="dbPoolMax"
+                    name="dbPoolMax"
+                    type="number"
+                    min="1"
+                    max="100"
+                    defaultValue={appSettings.dbPoolMax || 20}
+                    placeholder="20"
+                    required
+                  />
+                  <p className="text-sm text-gray-600">
+                    Maximum connections per database server.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="maxConcurrentConnections">Max Concurrent Connections</Label>
+                  <Input
+                    id="maxConcurrentConnections"
+                    name="maxConcurrentConnections"
+                    type="number"
+                    min="1"
+                    max="500"
+                    defaultValue={appSettings.maxConcurrentConnections || 50}
+                    placeholder="50"
+                    required
+                  />
+                  <p className="text-sm text-gray-600">
+                    Total concurrent database connections allowed.
+                  </p>
+                </div>
+              </div>
             </div>
+
+            {/* Job Queue Settings */}
+            <div className="border-b pb-4">
+              <h4 className="text-md font-medium text-gray-800 mb-3">Job Queue Settings</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="jobQueueMaxConcurrent">Max Concurrent Jobs</Label>
+                  <Input
+                    id="jobQueueMaxConcurrent"
+                    name="jobQueueMaxConcurrent"
+                    type="number"
+                    min="1"
+                    max="50"
+                    defaultValue={appSettings.jobQueueMaxConcurrent || 10}
+                    placeholder="10"
+                    required
+                  />
+                  <p className="text-sm text-gray-600">
+                    Maximum jobs running simultaneously.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* UI and Features */}
+            <div className="border-b pb-4">
+              <h4 className="text-md font-medium text-gray-800 mb-3">Features</h4>
+              <div className="space-y-3">
+                <div className="flex items-center space-x-2">
+                  <input
+                    id="enableProgressStreaming"
+                    name="enableProgressStreaming"
+                    type="checkbox"
+                    defaultChecked={appSettings.enableProgressStreaming !== false}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <Label htmlFor="enableProgressStreaming" className="cursor-pointer">
+                    Enable Real-time Progress Streaming
+                  </Label>
+                </div>
+                <p className="text-sm text-gray-600 ml-6">
+                  Show live progress updates during job execution.
+                </p>
+              </div>
+            </div>
+
+            {/* Logging */}
+            <div className="pb-4">
+              <h4 className="text-md font-medium text-gray-800 mb-3">Logging</h4>
+              <div className="space-y-2">
+                <Label htmlFor="logVerbosity">Log Verbosity</Label>
+                <select
+                  id="logVerbosity"
+                  name="logVerbosity"
+                  defaultValue={appSettings.logVerbosity || 'info'}
+                  className="w-full md:w-64 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="error">Error Only</option>
+                  <option value="warn">Warnings</option>
+                  <option value="info">Info (Recommended)</option>
+                  <option value="debug">Debug (Verbose)</option>
+                </select>
+                <p className="text-sm text-gray-600">
+                  Control the level of detail in application logs.
+                </p>
+              </div>
+            </div>
+
             <Button type="submit" disabled={isLoading}>
               {isLoading ? 'Saving...' : 'Save Settings'}
             </Button>

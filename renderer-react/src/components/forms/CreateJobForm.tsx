@@ -352,6 +352,8 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
   const [fyFilter, setFyFilter] = useState<string>("all")
   const [groupFilter, setGroupFilter] = useState<string>("all")
   const [partnerFilter, setPartnerFilter] = useState<string>("all")
+  const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [searchTerm, setSearchTerm] = useState<string>("")
   const [selectedConnections, setSelectedConnections] = useState(() => job ? (job.connectionIds || (job.connectionId ? [job.connectionId] : [])) : [])
   const [destinations, setDestinations] = useState(() => job ? job.destinations || [] : [])
   const [name, setName] = useState(() => job ? job.name || "" : "")
@@ -400,9 +402,21 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
   }, [job, connections])
 
   const filteredConnections = connections.filter((c) => {
+    // Search filter - check name, server, database
+    if (searchTerm) {
+      const search = searchTerm.toLowerCase()
+      const matchesSearch = 
+        c.name?.toLowerCase().includes(search) ||
+        c.server?.toLowerCase().includes(search) ||
+        c.database?.toLowerCase().includes(search)
+      if (!matchesSearch) return false
+    }
+    
+    // FY, Group, Partner, Status filters
     if (fyFilter !== 'all' && c.financialYear !== fyFilter) return false
     if (groupFilter !== 'all' && c.group !== groupFilter) return false
     if (partnerFilter !== 'all' && c.partner !== partnerFilter) return false
+    if (statusFilter !== 'all' && (c as any).testStatus !== statusFilter) return false
     return true
   })
 
@@ -535,6 +549,19 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
                 {/* Filters */}
                 <div className="space-y-4">
                   <h4 className="text-lg font-semibold">Filters</h4>
+                  {/* Search Box */}
+                  <div className="mb-4">
+                    <Label htmlFor="connection-search" className="text-sm">Search Connections</Label>
+                    <Input
+                      id="connection-search"
+                      type="text"
+                      placeholder="Search by name, server, or database..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="mt-1"
+                    />
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="space-y-2">
                       <Label className="text-sm">Financial Year</Label>
@@ -581,11 +608,28 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
                     </div>
                   </div>
 
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+                    <div className="space-y-2">
+                      <Label className="text-sm">Connection Status</Label>
+                      <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v)}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="All" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Statuses</SelectItem>
+                          <SelectItem value="connected">Connected</SelectItem>
+                          <SelectItem value="failed">Failed</SelectItem>
+                          <SelectItem value="not-tested">Not Tested</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
                   <div className="flex gap-2">
                     <Button type="button" variant="outline" size="sm" onClick={() => { /* noop - filters apply live */ }}>
                       Filter
                     </Button>
-                    <Button type="button" variant="outline" size="sm" onClick={() => { setFyFilter('all'); setGroupFilter('all'); setPartnerFilter('all'); }}>
+                    <Button type="button" variant="outline" size="sm" onClick={() => { setSearchTerm(''); setFyFilter('all'); setGroupFilter('all'); setPartnerFilter('all'); setStatusFilter('all'); }}>
                       Clear Filter
                     </Button>
                   </div>
