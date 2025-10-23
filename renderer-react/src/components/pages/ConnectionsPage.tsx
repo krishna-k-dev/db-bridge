@@ -388,13 +388,18 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
   }
 
   const handleExportConnections = async () => {
+    // Ask user whether to include passwords in the export
+    const includePasswords = window.confirm(
+      'Include passwords in the exported file? This will write plaintext passwords to the file. Only proceed if you understand the security implications.'
+    )
+
     // Prepare data for export - use filtered connections
     const exportData = filteredConnections.map(conn => ({
       name: conn.name,
       server: conn.server,
       database: conn.database,
       user: conn.user || '',
-      password: '', // Don't export passwords for security
+      password: includePasswords ? (conn.password || '') : '',
       port: conn.port || '',
       financialYear: conn.financialYear || '',
       group: conn.group || 'self',
@@ -596,7 +601,7 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   <input
                     type="checkbox"
                     checked={selectedConnections.length === filteredConnections.length && filteredConnections.length > 0}
@@ -610,36 +615,36 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
                     className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                   />
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Name
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Server
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Database
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Financial Year
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Group
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Partner
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Last Updated
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200">
+            <tbody className="divide-y divide-gray-200 text-xs">
               {filteredConnections.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
@@ -649,7 +654,7 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
               ) : (
                 filteredConnections.map((connection) => (
                   <tr key={connection.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-2 py-1 whitespace-nowrap">
                       <input
                         type="checkbox"
                         checked={selectedConnections.includes(connection.id)}
@@ -663,19 +668,19 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
                         className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                       />
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">
+                    <td className="px-2 py-1 whitespace-nowrap  text-gray-900">
                       {connection.name}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
+                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
                       {connection.server}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
+                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
                       {connection.database}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
+                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
                       {connection.financialYear || 'N/A'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
+                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
                       <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
                         connection.group === 'self'
                           ? 'bg-blue-100 text-blue-800'
@@ -684,10 +689,10 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
                         {connection.group === 'self' ? 'Self' : 'Partner'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
+                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
                       {connection.partner || '-'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-2 py-1 whitespace-nowrap">
                       <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
                         connection.testStatus === 'connected'
                           ? 'bg-green-100 text-green-800'
@@ -702,10 +707,10 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
                           : 'Not Tested'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
+                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
                       {connection.lastTested ? new Date(connection.lastTested).toLocaleString() : '-'}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-2 py-1 whitespace-nowrap">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <button className="p-1 hover:bg-gray-100 rounded transition-colors">

@@ -193,46 +193,46 @@ const JobsPage = ({ onCountChange }: JobsPageProps) => {
           <table className="w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Name
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Connection
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Schedule
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Status
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Destinations
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Actions
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-200">
+            <tbody className="divide-y divide-gray-200 text-xs">
               {filteredJobs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={6} className="px-2 py-12 text-center text-gray-500">
                     No jobs found. Click "Create Job" to get started.
                   </td>
                 </tr>
               ) : (
                 filteredJobs.map((job) => (
                   <tr key={job.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">
+                    <td className="px-2 py-1 whitespace-nowrap font-medium text-gray-900">
                       {job.name}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
+                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
                       {(job.connectionIds?.length || (job.connectionId ? 1 : 0))} connection{(job.connectionIds?.length || (job.connectionId ? 1 : 0)) !== 1 ? 's' : ''}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
+                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
                       {job.schedule}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-2 py-1 whitespace-nowrap">
                       <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
                         job.enabled
                           ? 'bg-green-100 text-green-800'
@@ -241,10 +241,10 @@ const JobsPage = ({ onCountChange }: JobsPageProps) => {
                         {job.enabled ? 'Enabled' : 'Disabled'}
                       </span>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-gray-700">
+                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
                       {job.destinations?.length || 0} destination{job.destinations?.length !== 1 ? 's' : ''}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-2 py-1 whitespace-nowrap">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <button className="p-1 hover:bg-gray-100 rounded transition-colors">
