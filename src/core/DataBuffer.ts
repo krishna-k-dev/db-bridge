@@ -35,8 +35,10 @@ export class DataBuffer {
   private static instance: DataBuffer;
   private buffers: Map<string, DestinationBuffer> = new Map();
   private flushInterval: NodeJS.Timeout | null = null;
-  private readonly FLUSH_INTERVAL_MS = 5000; // 5 seconds
-  private readonly BATCH_SIZE_THRESHOLD = 100; // rows
+  // Increase flush interval to reduce API call frequency and give Google Sheets time to settle
+  private readonly FLUSH_INTERVAL_MS = 10000; // 10 seconds
+  // Increase threshold to allow up to ~150 rows before forcing a flush
+  private readonly BATCH_SIZE_THRESHOLD = 150; // rows
   private readonly BACKUP_DIR = path.join(
     process.cwd(),
     "logs",
@@ -53,6 +55,15 @@ export class DataBuffer {
       DataBuffer.instance = new DataBuffer();
     }
     return DataBuffer.instance;
+  }
+
+  /**
+   * Ensure backup directory exists
+   */
+  private ensureBackupDir(): void {
+    if (!fs.existsSync(this.BACKUP_DIR)) {
+      fs.mkdirSync(this.BACKUP_DIR, { recursive: true });
+    }
   }
 
   /**
@@ -217,34 +228,88 @@ export class DataBuffer {
       }
 
       // Send each connection's data separately (maintains metadata)
-      for (const item of buffer) {
-        const result = await adapter.send(item.data, destination, item.meta);
+      // If some items fail after retries, keep them in the buffer for next attempt
+      const failedItems: BufferedData[] = [];
 
-        if (result.success) {
-          logger.info(
-            `✓ Sent ${item.data.length} rows from ${item.connection.name} to ${destinationType}`,
-            jobId
-          );
-        } else {
+      for (const item of buffer) {
+        let attempt = 0;
+        const maxAttempts = 3;
+        let sent = false;
+        let lastError: any = null;
+
+        while (attempt < maxAttempts && !sent) {
+          try {
+            const result = await adapter.send(
+              item.data,
+              destination,
+              item.meta
+            );
+
+            if (result && result.success) {
+              sent = true;
+              logger.info(
+                `\u2713 Sent ${item.data.length} rows from ${item.connection.name} to ${destinationType}`,
+                jobId
+              );
+              break;
+            } else {
+              lastError =
+                result?.message || result?.error || "Unknown adapter failure";
+              logger.warn(
+                `Attempt ${attempt + 1} failed for ${
+                  item.connection.name
+                } -> ${destinationType}: ${lastError}`,
+                jobId
+              );
+            }
+          } catch (err: any) {
+            lastError = err;
+            logger.warn(
+              `Attempt ${attempt + 1} exception for ${
+                item.connection.name
+              } -> ${destinationType}: ${err?.message || err}`,
+              jobId
+            );
+          }
+
+          attempt++;
+
+          if (!sent && attempt < maxAttempts) {
+            // Exponential backoff before retrying
+            const backoffMs = 1000 * Math.pow(2, attempt - 1); // 1s, 2s, 4s
+            await new Promise((res) => setTimeout(res, backoffMs));
+          }
+        }
+
+        if (!sent) {
+          // Record failure and keep item for next round
+          failedItems.push(item);
           logger.error(
-            `✗ Failed to send from ${item.connection.name} to ${destinationType}: ${result.message}`,
+            `\u2717 Failed to send after ${maxAttempts} attempts from ${item.connection.name} to ${destinationType}: ${lastError}`,
             jobId,
-            result.error
+            lastError
           );
         }
       }
 
-      // Clear buffer after successful flush
-      destBuffer.buffer = [];
-      destBuffer.lastFlushTime = Date.now();
-
-      // Remove backup file
-      await this.removeBackup(bufferKey);
-
-      logger.info(
-        `✅ Buffer flushed successfully for ${destinationType}`,
-        jobId
-      );
+      if (failedItems.length === 0) {
+        // All items sent successfully - clear buffer and remove backup
+        destBuffer.buffer = [];
+        destBuffer.lastFlushTime = Date.now();
+        await this.removeBackup(bufferKey);
+        logger.info(
+          `\u2705 Buffer flushed successfully for ${destinationType}`,
+          jobId
+        );
+      } else {
+        // Some items failed - keep them in the buffer and back them up
+        destBuffer.buffer = failedItems;
+        await this.backupBuffer(bufferKey, destBuffer);
+        logger.warn(
+          `${failedItems.length} item(s) failed to flush for ${destinationType}, will retry later`,
+          jobId
+        );
+      }
     } catch (error: any) {
       logger.error(
         `Failed to flush buffer for ${destinationType}: ${error.message}`,
@@ -323,19 +388,6 @@ export class DataBuffer {
       // Ignore errors
     }
   }
-
-  /**
-   * Ensure backup directory exists
-   */
-  private ensureBackupDir(): void {
-    if (!fs.existsSync(this.BACKUP_DIR)) {
-      fs.mkdirSync(this.BACKUP_DIR, { recursive: true });
-    }
-  }
-
-  /**
-   * Generate unique buffer key
-   */
   private getBufferKey(jobId: string, destinationType: string): string {
     return `${jobId}-${destinationType}`;
   }
