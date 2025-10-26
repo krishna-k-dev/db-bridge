@@ -1,0 +1,87 @@
+{
+  "name": "sql-bridge-app",
+  "version": "1.2.3",
+  "description": "Desktop app to bridge local SQL Server data to any destination (webhooks, Google Sheets, APIs)",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "npm run build && electron .",
+    "dev": "tsc && electronmon .",
+    "dev:electron": "cross-env NODE_ENV=development npm run build && cross-env NODE_ENV=development electron .",
+    "dev:full": "concurrently \"cd renderer-react && npm run dev\" \"npm run dev:electron\"",
+    "watch": "tsc --watch",
+    "build-icon": "node build-icon.js",
+    "package": "npm run build && npm run build-icon && electron-builder --win --x64",
+    "dist": "npm run build && npm run build-icon && electron-builder --win --x64",
+    "dist-win": "electron-builder --windows"
+  },
+  "keywords": [
+    "sql",
+    "bridge",
+    "automation",
+    "electron"
+  ],
+  "author": "krishna",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/mssql": "^9.1.8",
+    "@types/node": "^20.19.21",
+    "@types/node-cron": "^3.0.11",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^38.2.2",
+    "electron-builder": "^24.13.3",
+    "electron-packager": "^17.1.2",
+    "electronmon": "^2.0.3",
+    "icon-gen": "^5.0.0",
+    "png-to-ico": "^3.0.1",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@electron/remote": "^2.1.3",
+    "axios": "^1.6.2",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "googleapis": "^129.0.0",
+    "lucide-react": "^0.546.0",
+    "mssql": "^12.0.0",
+    "node-cron": "^3.0.3",
+    "tailwind-merge": "^3.3.1",
+    "tailwindcss-animate": "^1.0.7",
+    "xlsx": "^0.18.5"
+  },
+  "build": {
+    "appId": "com.sqlbridge.app",
+    "productName": "SQL Bridge",
+    "directories": {
+      "output": "release"
+    },
+    "compression": "maximum",
+    "files": [
+      "dist/**/*",
+      "src/renderer/**/*",
+      "src/icon/**/*",
+      "!src/**/*.ts",
+      "!*.md",
+      "!renderer-react/**/*",
+      "!.gitignore",
+      "!renderer-old/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "config",
+        "to": "config",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": "portable",
+      "publisherName": "Krishna Kumar",
+      "certificateFile": "C:/Users/user/Desktop/cert/KrishnaKumar_Cert.pfx",
+      "certificatePassword": "krishna@123"
+    }
+  }
+}

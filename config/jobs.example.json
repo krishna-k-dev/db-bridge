@@ -1,0 +1,53 @@
+{
+  "jobs": [
+    {
+      "id": "example-job",
+      "name": "Example: Sales Data to Google Sheets",
+      "enabled": false,
+      "connection": {
+        "server": "localhost",
+        "database": "SampleDB",
+        "user": "sa",
+        "password": "YourPassword",
+        "options": {
+          "trustServerCertificate": true,
+          "encrypt": false
+        }
+      },
+      "query": "SELECT * FROM Sales WHERE CreatedAt > DATEADD(day, -1, GETDATE())",
+      "schedule": "*/5 * * * *",
+      "trigger": "onChange",
+      "destinations": [
+        {
+          "type": "google_sheets",
+          "spreadsheetId": "YOUR_SPREADSHEET_ID_HERE",
+          "sheetName": "Sheet1",
+          "mode": "append",
+          "credentialsPath": "./config/google-credentials.json"
+        }
+      ]
+    },
+    {
+      "id": "webhook-example",
+      "name": "Example: Orders to Webhook",
+      "enabled": false,
+      "connection": {
+        "server": "localhost",
+        "database": "SampleDB"
+      },
+      "query": "SELECT * FROM Orders",
+      "schedule": "*/2 * * * *",
+      "trigger": "always",
+      "destinations": [
+        {
+          "type": "webhook",
+          "url": "https://your-api.com/webhook",
+          "method": "POST",
+          "headers": {
+            "Authorization": "Bearer YOUR_TOKEN_HERE"
+          }
+        }
+      ]
+    }
+  ]
+}

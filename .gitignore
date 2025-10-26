@@ -1,0 +1,16 @@
+distributable/
+node_modules/
+dist/
+release/
+logs/*.log
+config/google-credentials.json
+config/jobs.json
+*.log
+.DS_Store
+Thumbs.db
+<<<<<<< HEAD
+
+# Prevent all logs and buffer-backup files from being tracked
+logs/
+=======
+>>>>>>> e9da5dba3bf5fc2b2e2c8fdadd0bf984a2d9e5f8
