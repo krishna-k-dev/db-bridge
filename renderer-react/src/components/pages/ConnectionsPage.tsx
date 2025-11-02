@@ -63,6 +63,7 @@ interface ConnectionsPageProps {
 const headerMapping: { [key: string]: string } = {
   'name': 'name',
   'server': 'server',
+  'staticserver': 'server',  // Map staticServer to server
   'database': 'database',
   'user': 'user',
   'password': 'password',
@@ -88,6 +89,8 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
   const [filterStatus, setFilterStatus] = useState<string>('all')
   const [isBulkTesting, setIsBulkTesting] = useState(false)
   const [testingProgress, setTestingProgress] = useState<{ [key: string]: 'pending' | 'testing' | 'success' | 'failed' }>({})
+  const [testingActiveServer, setTestingActiveServer] = useState<{ [key: string]: 'static' | 'vpn' | undefined }>({})
+  const [testingResults, setTestingResults] = useState<{ [key: string]: { success: boolean; message?: string; activeServerType?: string } }>({})
   const [showTestMonitor, setShowTestMonitor] = useState(false)
 
   const loadConnections = async () => {
@@ -212,9 +215,14 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
             const result = await ipcRenderer.invoke('test-connection', connection.id)
             const status = result.success ? 'success' : 'failed'
             setTestingProgress(prev => ({ ...prev, [connection.id]: status }))
+            if (result && result.activeServerType) {
+              setTestingActiveServer(prev => ({ ...prev, [connection.id]: result.activeServerType }))
+            }
+            setTestingResults(prev => ({ ...prev, [connection.id]: { success: !!result.success, message: result.message, activeServerType: result.activeServerType } }))
             return { id: connection.id, success: result.success }
           } catch (error) {
             setTestingProgress(prev => ({ ...prev, [connection.id]: 'failed' }))
+            setTestingResults(prev => ({ ...prev, [connection.id]: { success: false, message: (error as any)?.message } }))
             return { id: connection.id, success: false }
           }
         })
@@ -228,11 +236,8 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
 
       const summary = `Test completed: ${successCount} successful, ${failCount} failed`
       
-      // Keep monitor open for 2 more seconds to show results
-      setTimeout(() => {
-        setShowTestMonitor(false)
-        setIsBulkTesting(false)
-      }, 2000)
+      // Don't auto-close - let user close manually after exporting report if needed
+      setIsBulkTesting(false)
 
       return summary
     } catch (error: any) {
@@ -246,6 +251,62 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
       throw new Error(`Bulk test failed: ${error?.message || String(error)}`)
     } finally {
       setIsBulkTesting(false)
+    }
+  }
+
+  const handleExportTestReport = async () => {
+    // Build report rows from testingResults and connections list
+    const rows = filteredConnections.map(conn => {
+      const tr = testingResults[conn.id] || { success: false, message: '' }
+      const activeServer = testingActiveServer[conn.id]
+      const hasStatic = conn.server && conn.server.trim() !== ''
+      const hasVPN = (conn as any).vpnServer && (conn as any).vpnServer.trim() !== ''
+      
+      // Determine active display logic same as WhatsApp
+      let activeDisplay = ''
+      if (activeServer) {
+        activeDisplay = activeServer === 'vpn' ? 'VPN' : 'Static'
+      } else if (!tr.success) {
+        // Test failed - show which servers were configured
+        if (hasStatic && hasVPN) {
+          activeDisplay = 'Both Failed'
+        } else if (hasStatic) {
+          activeDisplay = 'Static Failed'
+        } else if (hasVPN) {
+          activeDisplay = 'VPN Failed'
+        } else {
+          activeDisplay = '-'
+        }
+      }
+      
+      return {
+        name: conn.name,
+        staticServer: conn.server + (conn.port ? `:${conn.port}` : ''),
+        vpnServer: (conn as any).vpnServer ? `${(conn as any).vpnServer}${(conn as any).vpnPort ? `:${(conn as any).vpnPort}` : ''}` : '-',
+        active: activeDisplay,
+        status: tr.success ? 'Connected' : 'Failed',
+        message: tr.message || '',
+        lastTested: conn.lastTested ? new Date(conn.lastTested).toLocaleString() : ''
+      }
+    })
+
+    try {
+      const ws = XLSX.utils.json_to_sheet(rows)
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Test Report')
+      const timestamp = new Date().toISOString().split('T')[0]
+      const defaultFilename = `connection_test_report_${timestamp}.xlsx`
+      const result = await ipcRenderer.invoke('show-save-dialog', {
+        title: 'Save Test Report',
+        defaultPath: defaultFilename,
+        filters: [ { name: 'Excel Files', extensions: ['xlsx'] }, { name: 'All Files', extensions: ['*'] } ]
+      })
+      if (result.canceled || !result.filePath) return
+      XLSX.writeFile(wb, result.filePath)
+      toast.success('Test report exported successfully')
+    } catch (err) {
+      console.error('Failed to export test report', err)
+      toast.error('Failed to export test report')
     }
   }
 
@@ -292,12 +353,19 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
       })
     }
 
-    const requiredHeaders = ['name', 'server', 'database']
     const fileHeaders = Object.keys(data[0] || {}).map(h => h.toLowerCase())
-    const missingHeaders = requiredHeaders.filter(h => !fileHeaders.includes(h))
-
-    if (missingHeaders.length > 0) {
-      throw new Error(`Missing required columns: ${missingHeaders.join(', ')}`)
+    
+    // Check for required headers - accept either 'server' or 'staticserver'
+    const hasName = fileHeaders.includes('name')
+    const hasServer = fileHeaders.includes('server') || fileHeaders.includes('staticserver')
+    const hasDatabase = fileHeaders.includes('database')
+    
+    if (!hasName || !hasServer || !hasDatabase) {
+      const missing = []
+      if (!hasName) missing.push('name')
+      if (!hasServer) missing.push('server or staticServer')
+      if (!hasDatabase) missing.push('database')
+      throw new Error(`Missing required columns: ${missing.join(', ')}`)
     }
 
     // Collect unique financial years, partners, and stores from the data
@@ -439,9 +507,9 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
   }
 
   const handleDownloadTemplate = () => {
-    const csvContent = `name,server,database,user,password,vpnServer,vpnPort,financialYear,group,partner,storeName,storeShortName
-My Connection,localhost,MyDatabase,sa,,10.0.0.1,1433,2024-25,self,,Mumbai Store,MUM
-Partner Connection,partner-server,PartnerDB,user,password,vpn.partner.com,1433,2024-25,partner,partner1,Delhi Store,DEL`
+    const csvContent = `name,staticServer,vpnServer,database,user,password,port,vpnPort,financialYear,group,partner,storeName,storeShortName
+My Connection,localhost,,MyDatabase,sa,,1433,,2024-25,self,,Mumbai Store,MUM
+Partner Connection,partner-server,vpn.partner.com,PartnerDB,user,password,1433,1433,2024-25,partner,partner1,Delhi Store,DEL`
 
     const blob = new Blob([csvContent], { type: 'text/csv' })
     const url = window.URL.createObjectURL(blob)
@@ -921,11 +989,38 @@ Partner Connection,partner-server,PartnerDB,user,password,vpn.partner.com,1433,2
           <div className="mt-4 space-y-2 max-h-[400px] overflow-y-auto">
             {filteredConnections.map(conn => {
               const status = testingProgress[conn.id] || 'pending'
+              const activeServer = testingActiveServer[conn.id]
+              const hasStatic = conn.server && conn.server.trim() !== ''
+              const hasVPN = (conn as any).vpnServer && (conn as any).vpnServer.trim() !== ''
+              
+              // Determine active display logic same as WhatsApp
+              let activeDisplay = '-'
+              if (activeServer) {
+                // Test passed and we know which server connected
+                activeDisplay = activeServer === 'vpn' ? '🟠 VPN' : '🔵 Static'
+              } else if (status === 'failed') {
+                // Test failed - show which servers were configured
+                if (hasStatic && hasVPN) {
+                  activeDisplay = '❌ Both Failed'
+                } else if (hasStatic) {
+                  activeDisplay = '❌ Static Failed'
+                } else if (hasVPN) {
+                  activeDisplay = '❌ VPN Failed'
+                }
+              }
+              
               return (
                 <div key={conn.id} className="flex items-center justify-between p-3 border rounded-lg bg-gray-50">
                   <div className="flex-1">
                     <div className="font-medium text-sm">{conn.name}</div>
-                    <div className="text-xs text-gray-600">{conn.server} / {conn.database}</div>
+                    <div className="text-xs text-gray-600">
+                      Static: {conn.server || '-'} {hasVPN && `| VPN: ${(conn as any).vpnServer}`}
+                    </div>
+                    {status !== 'pending' && status !== 'testing' && (
+                      <div className="text-xs text-gray-700 mt-1 font-medium">
+                        Active: {activeDisplay}
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     {status === 'pending' && (
@@ -944,6 +1039,16 @@ Partner Connection,partner-server,PartnerDB,user,password,vpn.partner.com,1433,2
                 </div>
               )
             })}
+          </div>
+          <div className="mt-4 flex justify-end gap-2">
+            <button
+              onClick={handleExportTestReport}
+              disabled={Object.keys(testingResults).length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+            >
+              <Download className="w-4 h-4" />
+              Export Test Report
+            </button>
           </div>
         </DialogContent>
       </Dialog>

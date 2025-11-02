@@ -1084,17 +1084,12 @@ export class JobScheduler {
       throw new Error(`Partner ${trimmedName} already exists`);
     }
 
-    logger.info(`[createPartner] Adding partner to array: "${trimmedName}"`);
     this.settings.partners.push(trimmedName);
-    logger.info(`[createPartner] After push:`, undefined, {
-      partners: this.settings.partners,
-    });
-
     this.saveConfig();
-    logger.info(`[createPartner] Config saved successfully`);
 
     return trimmedName;
   }
+
   updatePartner(oldName: string, newName: string): string {
     if (!this.settings.partners) {
       this.settings.partners = [];
@@ -1607,6 +1602,9 @@ export class JobScheduler {
       name: string;
       store: string;
       server: string;
+      staticServer: string;
+      vpnServer?: string;
+      activeServerType?: "static" | "vpn";
       status: "success" | "failed";
       message?: string;
     }>;
@@ -1625,10 +1623,6 @@ export class JobScheduler {
           // Get which server connected
           const activeServerType =
             (connector as any).config?.activeServerType || "static";
-          const serverInfo =
-            activeServerType === "vpn"
-              ? `${connection.vpnServer} (VPN)`
-              : connection.server;
 
           await connector.disconnect();
 
@@ -1640,7 +1634,10 @@ export class JobScheduler {
           return {
             name: connection.name,
             store: connection.store || "-",
-            server: serverInfo,
+            server: connection.server, // Keep legacy field for compatibility
+            staticServer: connection.server,
+            vpnServer: (connection as any).vpnServer,
+            activeServerType: activeServerType,
             status: "success" as const,
           };
         } catch (error: any) {
@@ -1653,6 +1650,9 @@ export class JobScheduler {
             name: connection.name,
             store: connection.store || "-",
             server: connection.server,
+            staticServer: connection.server,
+            vpnServer: (connection as any).vpnServer,
+            activeServerType: undefined,
             status: "failed" as const,
             message: error.message,
           };
@@ -1679,6 +1679,9 @@ export class JobScheduler {
       name: string;
       store: string;
       server: string;
+      staticServer: string;
+      vpnServer?: string;
+      activeServerType?: "static" | "vpn";
       status: "success" | "failed";
       message?: string;
     }>
@@ -1735,13 +1738,37 @@ export class JobScheduler {
 
     let message = "📡 *Connection Test*\n";
     message += "--------------------------------\n";
-    message += "*Sno*   *Store*   *Server*       *Status*\n";
+    message += "*Sno*  *Store*  *Static*  *VPN*  *Active*  *Status*\n";
 
     filteredResults.forEach((result, index) => {
       const status = result.status === "success" ? "✅ Pass" : "❌ Fail";
-      message += `${index + 1}       ${result.store}        ${
-        result.server
-      }   ${status}\n`;
+      const staticSrv = (result as any).staticServer || "-";
+      const vpnSrv = (result as any).vpnServer || "-";
+
+      // Determine active server logic:
+      // If test succeeded and we have activeServerType, show it
+      // If test failed but only one server configured, show that one
+      // Otherwise show "-"
+      let active = "-";
+      if ((result as any).activeServerType) {
+        // Test passed and we know which server connected
+        active = (result as any).activeServerType === "vpn" ? "VPN" : "Static";
+      } else if (result.status === "failed") {
+        // Test failed - show which servers were configured
+        const hasStatic = staticSrv !== "-";
+        const hasVPN = vpnSrv !== "-";
+        if (hasStatic && hasVPN) {
+          active = "Both❌"; // Both configured but both failed
+        } else if (hasStatic) {
+          active = "Static❌"; // Only static configured and failed
+        } else if (hasVPN) {
+          active = "VPN❌"; // Only VPN configured and failed
+        }
+      }
+
+      message += `${index + 1}    ${
+        result.store
+      }    ${staticSrv}    ${vpnSrv}    ${active}    ${status}\n`;
     });
 
     message += "--------------------------------\n";

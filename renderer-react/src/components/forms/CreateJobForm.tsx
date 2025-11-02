@@ -633,7 +633,7 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
                           <SelectValue placeholder="All" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="all">All Statuses</SelectItem>
+                          <SelectItem value="all">All Status</SelectItem>
                           <SelectItem value="connected">Connected</SelectItem>
                           <SelectItem value="failed">Failed</SelectItem>
                           <SelectItem value="not-tested">Not Tested</SelectItem>
