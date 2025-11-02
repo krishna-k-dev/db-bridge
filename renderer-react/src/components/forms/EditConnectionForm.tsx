@@ -29,8 +29,10 @@ export function EditConnectionForm({ onConnectionUpdated }: EditConnectionFormPr
   const [connection, setConnection] = useState<any>(null)
   const [financialYears, setFinancialYears] = useState<string[]>([])
   const [partners, setPartners] = useState<string[]>([])
+  const [stores, setStores] = useState<Array<{ name: string; shortName: string }>>([])
   const [selectedFinancialYear, setSelectedFinancialYear] = useState<string>("")
   const [selectedPartner, setSelectedPartner] = useState<string>("")
+  const [selectedStore, setSelectedStore] = useState<string>("")
 
   useEffect(() => {
     loadConnection()
@@ -47,6 +49,7 @@ export function EditConnectionForm({ onConnectionUpdated }: EditConnectionFormPr
         setGroup(foundConnection.group || "self")
         setSelectedFinancialYear(foundConnection.financialYear || "")
         setSelectedPartner(foundConnection.partner || "")
+        setSelectedStore(foundConnection.store || "")
       }
     } catch (error) {
       console.error('Failed to load connection:', error)
@@ -56,7 +59,7 @@ export function EditConnectionForm({ onConnectionUpdated }: EditConnectionFormPr
     }
   }
 
-  // load financial years and partners for selects
+  // load financial years, partners, and stores for selects
   useEffect(() => {
     (async () => {
       try {
@@ -64,6 +67,8 @@ export function EditConnectionForm({ onConnectionUpdated }: EditConnectionFormPr
         setFinancialYears((fys || []).map((f: any) => f.year || f))
         const parts = await ipcRenderer.invoke('get-partners')
         setPartners((parts || []).map((p: any) => p.name || p))
+        const strs = await ipcRenderer.invoke('get-stores')
+        setStores(strs || [])
       } catch (err) {
         console.error('Failed to load settings for edit connection', err)
       }
@@ -103,6 +108,7 @@ export function EditConnectionForm({ onConnectionUpdated }: EditConnectionFormPr
       financialYear: formData.get('financial-year'),
       group: group,
       partner: group === 'partner' ? formData.get('partner-select') : undefined,
+      store: formData.get('store-select') || undefined,
       options: {
         trustServerCertificate: formData.get('trust-cert') === 'on',
       }
@@ -280,6 +286,29 @@ export function EditConnectionForm({ onConnectionUpdated }: EditConnectionFormPr
                     </SelectContent>
                   </Select>
                   <input type="hidden" name="financial-year" value={selectedFinancialYear || connection.financialYear} />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="store-select">Store</Label>
+                <div>
+                  <Select defaultValue={connection.store} onValueChange={(v: string) => setSelectedStore(v)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select Store (Optional)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {stores.length === 0 ? (
+                        <SelectItem value="none" disabled>No stores configured</SelectItem>
+                      ) : (
+                        stores.map((store) => (
+                          <SelectItem key={store.shortName} value={store.shortName}>
+                            {store.shortName} - {store.name}
+                          </SelectItem>
+                        ))
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <input type="hidden" name="store-select" value={selectedStore || connection.store || ""} />
                 </div>
               </div>
 

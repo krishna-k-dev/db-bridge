@@ -19,7 +19,7 @@ export class GoogleSheetsAdapter implements DestinationAdapter {
       connectionFailedMessage?: string;
     }>,
     config: GoogleSheetsDestination,
-    meta: { jobId: string; jobName: string; runTime: Date }
+    meta: { jobId: string; jobName: string; runTime: Date; settings?: any }
   ): Promise<SendResult> {
     try {
       // Parse credentials
@@ -51,8 +51,25 @@ export class GoogleSheetsAdapter implements DestinationAdapter {
         data,
         connectionFailedMessage,
       } of dataWithMeta) {
-        // Use only database name for sheet name
-        let sheetName = connection.database || connection.name;
+        // Determine sheet name based on settings
+        const format = meta.settings?.sheetNameFormat || "databaseName";
+        logger.info(
+          `[Google Sheets Adapter] Sheet name format: ${format}`,
+          meta.jobId,
+          {
+            format,
+            hasSettings: !!meta.settings,
+            sheetNameFormat: meta.settings?.sheetNameFormat,
+            connectionName: connection.name,
+            connectionDatabase: connection.database,
+            connectionStore: connection.store,
+          }
+        );
+        let sheetName = this.getSheetName(connection, format);
+        logger.info(
+          `[Google Sheets Adapter] Generated sheet name: ${sheetName}`,
+          meta.jobId
+        );
 
         // Truncate to 100 chars for Google Sheets limit
         sheetName = sheetName.substring(0, 100);
@@ -434,5 +451,22 @@ export class GoogleSheetsAdapter implements DestinationAdapter {
     }
 
     logger.info(`Updated ${updatedCount} rows in Google Sheets`, meta.jobId);
+  }
+
+  private getSheetName(
+    connection: any,
+    format: "connectionName" | "databaseName" | "storeName"
+  ): string {
+    switch (format) {
+      case "connectionName":
+        return connection.name || connection.database || "Sheet";
+      case "storeName":
+        return (
+          connection.store || connection.database || connection.name || "Sheet"
+        );
+      case "databaseName":
+      default:
+        return connection.database || connection.name || "Sheet";
+    }
   }
 }

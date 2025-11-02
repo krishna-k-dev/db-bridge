@@ -50,7 +50,25 @@ declare global {
   }
 }
 
+// System User Types
+export interface SystemUser {
+  name: string;
+  number: string;
+  group: string;
+}
+
+// WhatsApp Group Types
+export interface WhatsAppGroup {
+  name: string;
+  groupId: string;
+}
+
 // Connection Types
+export interface Store {
+  name: string;
+  shortName: string;
+}
+
 export interface Connection {
   id: string;
   name: string;
@@ -62,6 +80,7 @@ export interface Connection {
   financialYear?: string;
   group?: "self" | "partner";
   partner?: string;
+  store?: string; // Store short name
   options?: {
     trustServerCertificate?: boolean;
     encrypt?: boolean;

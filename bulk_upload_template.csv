@@ -1,7 +1,7 @@
-name,server,database,user,password,port,financialYear,group,partner
-Production Server,prod.example.com,ProductionDB,sa,SecurePass123,1433,2024-2025,self,
-Test Server,test.example.com,TestDB,sa,TestPass456,1433,2024-2025,self,
-Partner Server 1,partner1.com,PartnerDB1,sa,PartnerPass1,1433,2024-2025,partner,Partner A
-Partner Server 2,partner2.com,PartnerDB2,sa,PartnerPass2,1433,2024-2025,partner,Partner B
-Staging Server,staging.local,StagingDB,sa,StagingPass,1433,2025-2026,self,
-Development Server,localhost,DevDB,sa,DevPass,1433,2025-2026,self,
+name,server,database,user,password,port,financialYear,group,partner,storeName,storeShortName
+Production Server,prod.example.com,ProductionDB,sa,SecurePass123,1433,2024-2025,self,,Mumbai Store,MUM
+Test Server,test.example.com,TestDB,sa,TestPass456,1433,2024-2025,self,,Delhi Store,DEL
+Partner Server 1,partner1.com,PartnerDB1,sa,PartnerPass1,1433,2024-2025,partner,Partner A,Bangalore Store,BLR
+Partner Server 2,partner2.com,PartnerDB2,sa,PartnerPass2,1433,2024-2025,partner,Partner B,Chennai Store,CHN
+Staging Server,staging.local,StagingDB,sa,StagingPass,1433,2025-2026,self,,Pune Store,PUN
+Development Server,localhost,DevDB,sa,DevPass,1433,2025-2026,self,,Hyderabad Store,HYD

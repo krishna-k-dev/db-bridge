@@ -22,7 +22,7 @@ export class ExcelAdapter implements DestinationAdapter {
       connectionFailedMessage?: string;
     }>,
     config: ExcelDestination,
-    meta: { jobId: string; jobName: string; runTime: Date }
+    meta: { jobId: string; jobName: string; runTime: Date; settings?: any }
   ): Promise<SendResult> {
     let { filePath, mode = "replace" } = config;
 
@@ -83,8 +83,25 @@ export class ExcelAdapter implements DestinationAdapter {
         data,
         connectionFailedMessage,
       } of dataWithMeta) {
-        // Use only database name for sheet name
-        let sheetName = connection.database || connection.name;
+        // Determine sheet name based on settings
+        const format = meta.settings?.sheetNameFormat || "databaseName";
+        logger.info(
+          `[Excel Adapter] Sheet name format: ${format}`,
+          meta.jobId,
+          {
+            format,
+            hasSettings: !!meta.settings,
+            sheetNameFormat: meta.settings?.sheetNameFormat,
+            connectionName: connection.name,
+            connectionDatabase: connection.database,
+            connectionStore: connection.store,
+          }
+        );
+        let sheetName = this.getSheetName(connection, format);
+        logger.info(
+          `[Excel Adapter] Generated sheet name: ${sheetName}`,
+          meta.jobId
+        );
         sheetName = this.sanitizeSheetName(sheetName);
 
         let sheetData: any[];
@@ -352,5 +369,22 @@ export class ExcelAdapter implements DestinationAdapter {
     // For batch mode, concatenate all batches and write once
     const allData = batches.flat();
     return await this.send(allData, config, meta);
+  }
+
+  private getSheetName(
+    connection: any,
+    format: "connectionName" | "databaseName" | "storeName"
+  ): string {
+    switch (format) {
+      case "connectionName":
+        return connection.name || connection.database || "Sheet";
+      case "storeName":
+        return (
+          connection.store || connection.database || connection.name || "Sheet"
+        );
+      case "databaseName":
+      default:
+        return connection.database || connection.name || "Sheet";
+    }
   }
 }

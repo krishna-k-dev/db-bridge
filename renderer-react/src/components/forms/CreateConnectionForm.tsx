@@ -3,15 +3,9 @@ import { useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
+import { Combobox } from "@/components/ui/combobox"
 
 // @ts-ignore - Electron types
 const { ipcRenderer } = window.require('electron')
@@ -26,10 +20,12 @@ export function CreateConnectionForm({ onConnectionCreated }: CreateConnectionFo
   const [group, setGroup] = useState("self")
   const [financialYears, setFinancialYears] = useState<string[]>([])
   const [partners, setPartners] = useState<string[]>([])
+  const [stores, setStores] = useState<Array<{ name: string; shortName: string }>>([])
   const [selectedFinancialYear, setSelectedFinancialYear] = useState<string>("")
   const [selectedPartner, setSelectedPartner] = useState<string>("")
+  const [selectedStore, setSelectedStore] = useState<string>("")
 
-  // Load financial years and partners from main
+  // Load financial years, partners, and stores from main
   useEffect(() => {
     (async () => {
       try {
@@ -37,6 +33,8 @@ export function CreateConnectionForm({ onConnectionCreated }: CreateConnectionFo
         setFinancialYears((fys || []).map((f: any) => f.year || f))
         const parts = await ipcRenderer.invoke('get-partners')
         setPartners((parts || []).map((p: any) => p.name || p))
+        const strs = await ipcRenderer.invoke('get-stores')
+        setStores(strs || [])
       } catch (err) {
         console.error('Failed to load settings for connection form', err)
       }
@@ -74,6 +72,7 @@ export function CreateConnectionForm({ onConnectionCreated }: CreateConnectionFo
       financialYear: formData.get('financial-year'),
       group: group,
       partner: group === 'partner' ? formData.get('partner-select') : undefined,
+      store: formData.get('store-select') || undefined,
       options: {
         trustServerCertificate: formData.get('trust-cert') === 'on',
       }
@@ -174,22 +173,27 @@ export function CreateConnectionForm({ onConnectionCreated }: CreateConnectionFo
               <div className="space-y-2">
                 <Label htmlFor="financial-year">Financial Year *</Label>
                 <div>
-                  <Select onValueChange={(v: string) => setSelectedFinancialYear(v)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select Financial Year" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {financialYears.length === 0 ? (
-                        <SelectItem value="none">None</SelectItem>
-                      ) : (
-                        financialYears.map((fy) => (
-                          <SelectItem key={fy} value={fy}>{fy}</SelectItem>
-                        ))
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <Combobox
+                    options={financialYears.length === 0 ? [{ value: "none", label: "None" }] : financialYears.map(fy => ({ value: fy, label: fy }))}
+                    value={selectedFinancialYear}
+                    onValueChange={setSelectedFinancialYear}
+                    placeholder="Select Financial Year"
+                  />
                   {/* hidden input so FormData picks up value */}
                   <input type="hidden" name="financial-year" value={selectedFinancialYear} />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="store-select">Store</Label>
+                <div>
+                  <Combobox
+                    options={stores.length === 0 ? [{ value: "none", label: "No stores configured" }] : stores.map(store => ({ value: store.shortName, label: `${store.shortName} - ${store.name}` }))}
+                    value={selectedStore}
+                    onValueChange={setSelectedStore}
+                    placeholder="Select Store (Optional)"
+                  />
+                  <input type="hidden" name="store-select" value={selectedStore} />
                 </div>
               </div>
 
@@ -227,20 +231,12 @@ export function CreateConnectionForm({ onConnectionCreated }: CreateConnectionFo
                 <div className="space-y-2">
                   <Label htmlFor="partner-select">Partner *</Label>
                   <div>
-                    <Select onValueChange={(v: string) => setSelectedPartner(v)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select Partner" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {partners.length === 0 ? (
-                          <SelectItem value="none">None</SelectItem>
-                        ) : (
-                          partners.map((p) => (
-                            <SelectItem key={p} value={p}>{p}</SelectItem>
-                          ))
-                        )}
-                      </SelectContent>
-                    </Select>
+                    <Combobox
+                      options={partners.length === 0 ? [{ value: "none", label: "None" }] : partners.map(p => ({ value: p, label: p }))}
+                      value={selectedPartner}
+                      onValueChange={setSelectedPartner}
+                      placeholder="Select Partner"
+                    />
                     <input type="hidden" name="partner-select" value={selectedPartner} />
                   </div>
                 </div>

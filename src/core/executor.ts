@@ -9,10 +9,16 @@ import { DataBuffer } from "./DataBuffer";
 export class JobExecutor {
   private progressStream: ProgressStream;
   private dataBuffer: DataBuffer;
+  private settings: any;
 
-  constructor() {
+  constructor(settings?: any) {
     this.progressStream = ProgressStream.getInstance();
     this.dataBuffer = DataBuffer.getInstance();
+    this.settings = settings || {};
+  }
+
+  updateSettings(settings: any): void {
+    this.settings = settings || {};
   }
 
   async executeJobMultiConnection(
@@ -229,6 +235,13 @@ export class JobExecutor {
             job.id
           );
 
+          logger.info(`[Executor] Calling adapter with settings`, job.id, {
+            adapterName: adapter.name,
+            hasSettings: !!this.settings,
+            sheetNameFormat: this.settings?.sheetNameFormat,
+            allSettings: this.settings,
+          });
+
           const result = await sendMultiConn.call(
             adapter,
             dataWithMeta,
@@ -238,6 +251,7 @@ export class JobExecutor {
               jobName: job.name,
               jobGroup: job.group || "",
               runTime: job.lastRun,
+              settings: this.settings,
             }
           );
 
@@ -277,6 +291,7 @@ export class JobExecutor {
               rowCount: data.length,
               connectionId: connection.id,
               connectionName: connection.database || connection.name, // Use database name
+              settings: this.settings,
               financialYear: connection.financialYear || "",
               group: connection.group || "self",
               partner:
@@ -397,6 +412,7 @@ export class JobExecutor {
         rowCount: data.length,
         connectionId: connection.id,
         connectionName: connection.database || connection.name, // Use database name
+        settings: this.settings,
       };
 
       this.progressStream.updateJobStep(

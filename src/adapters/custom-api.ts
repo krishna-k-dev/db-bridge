@@ -18,10 +18,13 @@ export class CustomAPIAdapter implements DestinationAdapter {
       connectionFailedMessage?: string;
     }>,
     config: CustomAPIDestination,
-    meta: { jobId: string; jobName: string; runTime: Date }
+    meta: { jobId: string; jobName: string; runTime: Date; settings?: any }
   ): Promise<SendResult> {
     try {
       const method = config.method || "POST";
+
+      // Get system users from settings
+      const systemUsers = meta.settings?.systemUsers || [];
 
       // Combine all data into one array with connection name (MUST) and other metadata
       const combinedPayload = dataWithMeta.map(
@@ -39,6 +42,12 @@ export class CustomAPIAdapter implements DestinationAdapter {
           jobGroup: (meta as any).jobGroup || "",
           rowCount: data.length, // Row count for this connection
           connectionFailedMessage: connectionFailedMessage || "", // Connection failed message
+          // System Info - Users for WhatsApp notifications
+          systemUsers: systemUsers.map((user: any) => ({
+            name: user.name,
+            number: user.number,
+            group: user.group,
+          })),
           data: data, // Actual data array
         })
       );
@@ -92,6 +101,9 @@ export class CustomAPIAdapter implements DestinationAdapter {
       for (let i = 0; i < data.length; i += batchSize) {
         const batch = data.slice(i, i + batchSize);
 
+        // Get system users from settings
+        const systemUsers = (meta as any).settings?.systemUsers || [];
+
         await axios({
           method,
           url: config.url,
@@ -109,6 +121,12 @@ export class CustomAPIAdapter implements DestinationAdapter {
             rowCount: batch.length,
             connectionFailedMessage:
               (meta as any).connectionFailedMessage || "",
+            // System Info - Users for WhatsApp notifications
+            systemUsers: systemUsers.map((user: any) => ({
+              name: user.name,
+              number: user.number,
+              group: user.group,
+            })),
             data: batch,
             __v: 0,
           },

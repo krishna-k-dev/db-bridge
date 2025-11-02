@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { toast } from "sonner"
+import { AdvancedScheduleSelector, generateCron, parseCronToConfig, type ScheduleConfig } from "@/components/AdvancedScheduleSelector"
 
 interface Destination {
   type: string
@@ -325,34 +326,18 @@ function DestinationItem({ destination, onUpdate, onRemove }: DestinationItemPro
 
 export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobFormProps) {
   const navigate = useNavigate()
-  const schedulePresets = [
-    { value: "manual", label: "Manual (Run on demand only)", cron: "manual" },
-    { value: "custom", label: "Custom (cron)", cron: "" },
-    { value: "every1min", label: "Every 1 minute", cron: "*/1 * * * *" },
-    { value: "every2min", label: "Every 2 minutes", cron: "*/2 * * * *" },
-    { value: "every5min", label: "Every 5 minutes", cron: "*/5 * * * *" },
-    { value: "every10min", label: "Every 10 minutes", cron: "*/10 * * * *" },
-    { value: "every30min", label: "Every 30 minutes", cron: "*/30 * * * *" },
-    { value: "everyhour", label: "Every hour", cron: "0 * * * *" },
-  ]
   const [isLoading, setIsLoading] = useState(false)
   const [connections, setConnections] = useState<any[]>([])
-  const [schedule, setSchedule] = useState(() => job ? job.schedule || "*/2 * * * *" : "*/2 * * * *")
-  const [selectedScheduleType, setSelectedScheduleType] = useState(() => {
-    if (job) {
-      const jobSchedule = job.schedule || "*/2 * * * *"
-      const preset = schedulePresets.find(p => p.cron === jobSchedule)
-      return preset ? preset.value : "custom"
-    } else {
-      return "custom"  // Default to Advanced
+  
+  // Convert job schedule (cron string) to ScheduleConfig
+  const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig>(() => {
+    if (job && job.schedule && job.schedule !== "manual") {
+      return parseCronToConfig(job.schedule)
     }
+    // Default: every 2 minutes
+    return { type: 'repeated', mode: 'every', everyUnit: 'minutes', everyValue: 2 }
   })
-  const [timeOfDay, setTimeOfDay] = useState(() => job ? job.timeOfDay || '09:00' : '09:00')
-  // Track which advanced preset (if any) is selected separately from schedule type
-  const [advancedPresetSelected, setAdvancedPresetSelected] = useState(() => {
-    const preset = schedulePresets.find(p => p.cron === (job ? (job.schedule || "*/2 * * * *") : ("*/2 * * * *")))
-    return preset ? preset.value : "custom"
-  })
+  const [isManualSchedule, setIsManualSchedule] = useState(() => job ? job.schedule === "manual" : false)
   const [financialYears, setFinancialYears] = useState<string[]>([])
   const [partners, setPartners] = useState<string[]>([])
   const [jobGroups, setJobGroups] = useState<string[]>([])
@@ -404,20 +389,13 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
       setSelectedConnections(existingConnectionIds)
       setDestinations(job.destinations || [])
       
-      // Set time field
-      setTimeOfDay(job.timeOfDay || "09:00")
-      
-      // Set schedule (for backward compatibility)
-      const jobSchedule = job.schedule || "*/2 * * * *"
-      setSchedule(jobSchedule)
-      const preset = schedulePresets.find(p => p.cron === jobSchedule)
-      // If the job explicitly has a daily recurrence type, show daily selector, otherwise show Advanced
-      if (job.recurrenceType === 'daily') {
-        setSelectedScheduleType('daily')
-      } else {
-        setSelectedScheduleType('custom')
+      // Parse schedule from job
+      if (job.schedule === "manual") {
+        setIsManualSchedule(true)
+      } else if (job.schedule) {
+        setIsManualSchedule(false)
+        setScheduleConfig(parseCronToConfig(job.schedule))
       }
-      setAdvancedPresetSelected(preset ? preset.value : 'custom')
     }
   }, [job, connections])
 
@@ -518,18 +496,15 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
       }
     }
 
+    // Generate schedule cron from config
+    const scheduleCron = isManualSchedule ? "manual" : generateCron(scheduleConfig);
+    
     const jobData = {
       id: job?.id || `job_${Date.now()}`,
       name: name,
       group: group || undefined,
       query: query,
-      schedule: schedule,
-  // Only set recurrenceType for 'daily'. Leave undefined for advanced cron schedules so
-  // the scheduler treats `schedule` as a cron expression.
-  recurrenceType: selectedScheduleType === 'daily' ? 'daily' : undefined,
-      // Only include timeOfDay when Daily is explicitly selected. If advanced schedule is chosen,
-      // leave timeOfDay undefined so the main scheduler will use the cron expression.
-      timeOfDay: selectedScheduleType === 'daily' ? timeOfDay : undefined,
+      schedule: scheduleCron,
       trigger: trigger,
       connectionIds: selectedConnections,
       destinations: destinations,
@@ -695,7 +670,10 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
                         filteredConnections.map((connection) => (
                           <div key={connection.id} className="flex items-center space-x-2">
                             <input type="checkbox" id={`conn-${connection.id}`} checked={selectedConnections.includes(connection.id)} onChange={() => handleConnectionToggle(connection.id)} className="h-4 w-4 border border-gray-300 rounded" />
-                            <Label htmlFor={`conn-${connection.id}`} className="text-sm">{connection.name}</Label>
+                            <Label htmlFor={`conn-${connection.id}`} className="text-sm">
+                              {connection.name}
+                              {connection.store && <span className="text-gray-500 ml-1">({connection.store})</span>}
+                            </Label>
                           </div>
                         ))
                       )}
@@ -719,70 +697,38 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
                 <div className="space-y-4">
                   <h4 className="text-lg font-semibold">Schedule & Trigger</h4>
                   
-                  {/* Schedule Type Selector */}
+                  {/* Manual/Scheduled Toggle */}
                   <div className="space-y-2">
-                    <Label>Schedule Type</Label>
+                    <Label>Schedule Mode</Label>
                     <div className="flex gap-4">
                       <label className="flex items-center space-x-2">
                         <input
                           type="radio"
-                          name="scheduleType"
-                          value="daily"
-                          checked={selectedScheduleType === 'daily'}
-                          onChange={() => setSelectedScheduleType('daily')}
+                          name="scheduleMode"
+                          checked={!isManualSchedule}
+                          onChange={() => setIsManualSchedule(false)}
                         />
-                        <span>Daily</span>
+                        <span>Scheduled (Automatic)</span>
                       </label>
                       <label className="flex items-center space-x-2">
                         <input
                           type="radio"
-                          name="scheduleType"
-                          value="advanced"
-                          checked={selectedScheduleType !== 'daily'}
-                          onChange={() => setSelectedScheduleType('custom')}
+                          name="scheduleMode"
+                          checked={isManualSchedule}
+                          onChange={() => setIsManualSchedule(true)}
                         />
-                        <span>Advanced</span>
+                        <span>Manual (On Demand Only)</span>
                       </label>
                     </div>
                   </div>
 
-                  {/* Conditional Fields */}
-                  {/* Show daily time only when user selected Daily explicitly */}
-                  {(selectedScheduleType === 'daily') && (
+                  {/* Advanced Schedule Selector */}
+                  {!isManualSchedule && (
                     <div className="space-y-2">
-                      <Label htmlFor="time-of-day">Daily Run Time</Label>
-                      <Input
-                        id="time-of-day"
-                        type="time"
-                        value={timeOfDay}
-                        onChange={(e) => setTimeOfDay(e.target.value)}
-                        required
+                      <AdvancedScheduleSelector
+                        value={scheduleConfig}
+                        onChange={setScheduleConfig}
                       />
-                      <p className="text-sm text-gray-500">Job will run daily at this time</p>
-                    </div>
-                  )}
-
-                  {(selectedScheduleType === 'manual' || selectedScheduleType === 'custom') && (
-                    <div className="space-y-2">
-                      <Label htmlFor="schedule-preset">Advanced Schedule</Label>
-                      <Select value={advancedPresetSelected} onValueChange={(value) => {
-                        // Keep schedule type as Advanced (custom) when choosing an advanced preset.
-                        setAdvancedPresetSelected(value)
-                        setSelectedScheduleType('custom')
-                        const preset = schedulePresets.find(p => p.value === value)
-                        setSchedule(preset ? preset.cron : "")
-                      }}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select schedule" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {schedulePresets.map((preset) => (
-                            <SelectItem key={preset.value} value={preset.value}>{preset.label}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Input id="schedule" name="schedule" placeholder="*/2 * * * *" value={schedule} onChange={(e) => setSchedule(e.target.value)} className="mt-2" />
-                      <p className="text-sm text-gray-500">Cron expression for advanced scheduling</p>
                     </div>
                   )}
 

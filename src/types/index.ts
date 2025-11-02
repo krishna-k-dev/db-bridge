@@ -11,6 +11,7 @@ export interface SQLConnection {
   financialYear?: string;
   group?: "self" | "partner";
   partner?: string;
+  store?: string; // Store short name
   options?: {
     trustServerCertificate?: boolean;
     encrypt?: boolean;
@@ -18,7 +19,7 @@ export interface SQLConnection {
   };
   createdAt?: Date;
   lastTested?: Date;
-  testStatus?: "connected" | "failed" | "not-tested";
+  testStatus?: "connected" | "failed" | "not-started";
 }
 
 export interface Job {
@@ -39,12 +40,40 @@ export interface Job {
   group?: string;
 }
 
+export interface Store {
+  name: string;
+  shortName: string;
+}
+
+export interface SystemUser {
+  name: string;
+  number: string;
+  group: string;
+}
+
+export interface WhatsAppGroup {
+  name: string;
+  groupId: string;
+}
+
 export interface AppSettings {
   defaultQueryTimeout?: number; // in seconds
   defaultConnectionTimeout?: number; // in seconds
   partners: string[]; // list of partner names
   financialYears: string[]; // list of financial years
   jobGroups: string[]; // list of job group names
+  stores: Store[]; // list of stores with name and short name
+  systemUsers: SystemUser[]; // list of system users for WhatsApp notifications
+  whatsappGroups: WhatsAppGroup[]; // list of WhatsApp groups for notifications
+  sheetNameFormat?: "connectionName" | "databaseName" | "storeName"; // format for sheet names in Excel/Google Sheets
+  // Connection test settings
+  connectionTestEnabled?: boolean; // enable/disable automated connection testing
+  connectionTestInterval?: number; // interval in hours (default 2)
+  connectionTestSendTo?: "number" | "groups"; // send to number or groups
+  connectionTestWhatsAppNumber?: string; // WhatsApp number to send test results
+  connectionTestWhatsAppGroups?: string[]; // WhatsApp group IDs to send test results
+  connectionTestShowFailed?: boolean; // show failed connections (default true)
+  connectionTestShowPassed?: boolean; // show passed connections (default false)
   [key: string]: any;
 }
 
@@ -102,6 +131,7 @@ export interface JobMeta {
   rowCount: number;
   connectionId?: string;
   connectionName?: string;
+  settings?: AppSettings;
 }
 
 export interface SendResult {

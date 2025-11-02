@@ -41,6 +41,7 @@ interface Connection {
   financialYear?: string
   group?: "self" | "partner"
   partner?: string
+  store?: string
   options?: {
     trustServerCertificate?: boolean
     encrypt?: boolean
@@ -294,37 +295,76 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
       throw new Error(`Missing required columns: ${missingHeaders.join(', ')}`)
     }
 
-    // Collect unique financial years and partners from the data
+    // Collect unique financial years, partners, and stores from the data
     const uniqueFinancialYearsInData = new Set<string>()
     const uniquePartnersInData = new Set<string>()
+    const uniqueStoresInData = new Map<string, string>() // shortName -> name
 
     for (const row of data) {
       const financialYear = row['financialyear']?.toString().trim()
-      if (financialYear) {
+      // Only add if not empty after trimming
+      if (financialYear && financialYear.length > 0) {
         uniqueFinancialYearsInData.add(financialYear)
       }
       const group = row['group']?.toString().trim().toLowerCase()
       const partner = row['partner']?.toString().trim()
-      if (group === 'partner' && partner) {
+      // Only add if group is partner and partner name is not empty
+      if (group === 'partner' && partner && partner.length > 0) {
         uniquePartnersInData.add(partner)
       }
-    }
-
-    // Get existing financial years and partners
-    const existingFinancialYears = await ipcRenderer.invoke('get-financial-years')
-    const existingPartners = await ipcRenderer.invoke('get-partners')
-
-    // Create new financial years
-    for (const year of uniqueFinancialYearsInData) {
-      if (!existingFinancialYears.some((fy: any) => fy.year?.toLowerCase() === year.toLowerCase())) {
-        await ipcRenderer.invoke('create-financial-year', year)
+      
+      // Collect stores
+      const storeName = row['storename']?.toString().trim()
+      const storeShortName = row['storeshortname']?.toString().trim()
+      if (storeName && storeName.length > 0 && storeShortName && storeShortName.length > 0) {
+        uniqueStoresInData.set(storeShortName, storeName)
       }
     }
 
-    // Create new partners
+    // Get existing financial years, partners, and stores
+    const existingFinancialYears = await ipcRenderer.invoke('get-financial-years')
+    const existingPartners = await ipcRenderer.invoke('get-partners')
+    const existingStores = await ipcRenderer.invoke('get-stores')
+
+    // Create new financial years (with additional validation)
+    for (const year of uniqueFinancialYearsInData) {
+      if (!year || year.trim().length === 0) continue // Skip empty
+      // Backend returns array of strings, so compare directly
+      if (!existingFinancialYears.some((fy: string) => fy.toLowerCase() === year.toLowerCase())) {
+        const result = await ipcRenderer.invoke('create-financial-year', year)
+        if (!result.success) {
+          console.error('Failed to create financial year:', year, result.message)
+        }
+      }
+    }
+
+    // Create new partners (with additional validation)
     for (const partner of uniquePartnersInData) {
-      if (!existingPartners.some((p: any) => p.name?.toLowerCase() === partner.toLowerCase())) {
-        await ipcRenderer.invoke('create-partner', partner)
+      if (!partner || partner.trim().length === 0) continue // Skip empty
+      // Backend returns array of strings, so compare directly
+      if (!existingPartners.some((p: string) => p.toLowerCase() === partner.toLowerCase())) {
+        const result = await ipcRenderer.invoke('create-partner', partner)
+        if (!result.success) {
+          console.error('Failed to create partner:', partner, result.message)
+        }
+      }
+    }
+
+    // Create new stores (with additional validation, case insensitive)
+    for (const [shortName, name] of uniqueStoresInData.entries()) {
+      if (!shortName || shortName.trim().length === 0 || !name || name.trim().length === 0) continue
+      
+      // Check if store already exists (case insensitive for both name and shortName)
+      const storeExists = existingStores.some((s: any) => 
+        s.shortName.toLowerCase() === shortName.toLowerCase() || 
+        s.name.toLowerCase() === name.toLowerCase()
+      )
+      
+      if (!storeExists) {
+        const result = await ipcRenderer.invoke('create-store', name, shortName)
+        if (!result.success) {
+          console.error('Failed to create store:', name, shortName, result.message)
+        }
       }
     }
 
@@ -346,6 +386,13 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
       connectionData.financialYear = connectionData.financialYear || '2024-25'
       const groupValue = (connectionData.group as string)?.toLowerCase()
       connectionData.group = (groupValue === 'partner') ? 'partner' : 'self'
+      
+      // Set store from storeShortName if provided
+      const storeShortName = row['storeshortname']?.toString().trim()
+      if (storeShortName) {
+        connectionData.store = storeShortName
+      }
+      
       connectionData.options = {
         trustServerCertificate: true
       }
@@ -387,9 +434,9 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
   }
 
   const handleDownloadTemplate = () => {
-    const csvContent = `name,server,database,user,password,financialYear,group,partner
-My Connection,localhost,MyDatabase,sa,,2024-25,self,
-Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partner1`
+    const csvContent = `name,server,database,user,password,financialYear,group,partner,storeName,storeShortName
+My Connection,localhost,MyDatabase,sa,,2024-25,self,,Mumbai Store,MUM
+Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partner1,Delhi Store,DEL`
 
     const blob = new Blob([csvContent], { type: 'text/csv' })
     const url = window.URL.createObjectURL(blob)
@@ -419,6 +466,7 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
       financialYear: conn.financialYear || '',
       group: conn.group || 'self',
       partner: conn.partner || '',
+      store: conn.store || '',
       testStatus: conn.testStatus || 'not-tested',
       lastTested: conn.lastTested ? new Date(conn.lastTested).toLocaleString() : '',
       createdAt: conn.createdAt ? new Date(conn.createdAt).toLocaleDateString() : ''
@@ -643,6 +691,9 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
                   Financial Year
                 </th>
                 <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                  Store
+                </th>
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Group
                 </th>
                 <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
@@ -662,7 +713,7 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
             <tbody className="divide-y divide-gray-200 text-xs">
               {filteredConnections.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={11} className="px-6 py-12 text-center text-gray-500">
                     No connections found. Click "Add Connection" to get started.
                   </td>
                 </tr>
@@ -694,6 +745,9 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
                     </td>
                     <td className="px-2 py-1 whitespace-nowrap text-gray-700">
                       {connection.financialYear || 'N/A'}
+                    </td>
+                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
+                      {connection.store || '-'}
                     </td>
                     <td className="px-2 py-1 whitespace-nowrap text-gray-700">
                       <span className={`px-2 py-1 text-xs font-semibold rounded-full ${

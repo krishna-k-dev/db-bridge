@@ -1,4 +1,13 @@
-import { app, BrowserWindow, ipcMain, dialog, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  shell,
+  Tray,
+  Menu,
+  nativeImage,
+} from "electron";
 import * as remoteMain from "@electron/remote/main";
 import * as path from "path";
 import * as fs from "fs";
@@ -11,6 +20,8 @@ import { JobQueue } from "./core/JobQueue";
 
 let mainWindow: BrowserWindow | null = null;
 let splash: BrowserWindow | null = null;
+let tray: Tray | null = null;
+let isQuitting = false;
 let scheduler: JobScheduler;
 let progressStream: ProgressStream;
 let connectionPoolManager: ConnectionPoolManager;
@@ -153,6 +164,27 @@ function createWindow(): void {
     }, 2000); // 2000 milliseconds = 2 seconds
   });
 
+  // Prevent window from closing, minimize to tray instead
+  mainWindow.on("close", (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow?.hide();
+
+      // Show tray notification first time
+      if (tray && process.platform === "win32") {
+        tray.displayBalloon({
+          title: "SQL Bridge Running",
+          content:
+            "Application minimized to system tray. Click icon to restore.",
+          icon: nativeImage.createFromPath(
+            path.join(app.getAppPath(), "build/icon.ico")
+          ),
+        });
+      }
+      return false;
+    }
+  });
+
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
@@ -160,6 +192,101 @@ function createWindow(): void {
   // Open DevTools in development
   if (process.env.NODE_ENV === "development") {
     mainWindow.webContents.openDevTools();
+  }
+}
+
+function createTray(): void {
+  // Try multiple icon paths for production and development
+  let iconPath = path.join(app.getAppPath(), "build/icon.ico");
+
+  // In production (packaged app), icon is in resources folder
+  if (!fs.existsSync(iconPath)) {
+    iconPath = path.join(process.resourcesPath, "icon.ico");
+  }
+
+  // Fallback to app path
+  if (!fs.existsSync(iconPath)) {
+    iconPath = path.join(app.getAppPath(), "icon.ico");
+  }
+
+  // Create tray icon
+  tray = new Tray(iconPath);
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: "Show SQL Bridge",
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        } else {
+          createWindow();
+        }
+      },
+    },
+    {
+      label: "Hide Window",
+      click: () => {
+        mainWindow?.hide();
+      },
+    },
+    { type: "separator" },
+    {
+      label: "Job Status",
+      enabled: false,
+    },
+    { type: "separator" },
+    {
+      label: "Quit Application",
+      click: () => {
+        isQuitting = true;
+        if (scheduler) {
+          scheduler.stopAll();
+        }
+        app.quit();
+      },
+    },
+    {
+      label: "Force Quit (Emergency)",
+      click: () => {
+        app.exit(0);
+      },
+    },
+  ]);
+
+  tray.setToolTip("SQL Bridge - Running in Background\nRight-click for menu");
+  tray.setContextMenu(contextMenu);
+
+  // Double click to show window
+  tray.on("double-click", () => {
+    if (mainWindow) {
+      if (mainWindow.isVisible()) {
+        mainWindow.hide();
+      } else {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    } else {
+      createWindow();
+    }
+  });
+
+  // Single click to show menu (better UX)
+  tray.on("click", () => {
+    if (tray) {
+      tray.popUpContextMenu();
+    }
+  });
+}
+
+// Update tray tooltip periodically with status
+function updateTrayStatus(message?: string) {
+  if (tray) {
+    const baseTooltip = "SQL Bridge - Running in Background";
+    const fullTooltip = message
+      ? `${baseTooltip}\n${message}\nClick for menu, Quit from menu`
+      : `${baseTooltip}\nClick for menu, Quit from menu`;
+    tray.setToolTip(fullTooltip);
   }
 }
 
@@ -219,6 +346,7 @@ app.whenReady().then(() => {
   scheduler = new JobScheduler();
   scheduler.loadConfig();
   scheduler.startAll();
+  scheduler.startConnectionTestScheduler(); // Start connection test scheduler
 
   logger.info("SQL Bridge App started");
 
@@ -383,6 +511,21 @@ app.whenReady().then(() => {
       });
     }
 
+    // Restart connection test scheduler if settings changed
+    if (
+      settings.connectionTestEnabled !== undefined ||
+      settings.connectionTestInterval !== undefined ||
+      settings.connectionTestCron !== undefined
+    ) {
+      scheduler.restartConnectionTestScheduler();
+      const cronInfo =
+        settings.connectionTestCron ||
+        `interval: ${settings.connectionTestInterval}h`;
+      logger.info(
+        `Connection test scheduler restarted with new settings - enabled: ${settings.connectionTestEnabled}, cron: ${cronInfo}`
+      );
+    }
+
     // Update environment variables for runtime configuration
     if (settings.dbPoolMax)
       process.env.DB_POOL_MAX = String(settings.dbPoolMax);
@@ -411,18 +554,29 @@ app.whenReady().then(() => {
 
   ipcMain.handle("create-financial-year", (_event, year: string) => {
     try {
+      // Log what we're receiving
+      logger.info(
+        `Creating financial year: "${year}" (type: ${typeof year})`,
+        undefined,
+        { year }
+      );
       const financialYear = scheduler.createFinancialYear(year);
       return { success: true, financialYear };
     } catch (error: any) {
+      logger.error(
+        `Failed to create financial year: ${error.message}`,
+        undefined,
+        error
+      );
       return { success: false, message: error.message };
     }
   });
 
   ipcMain.handle(
     "update-financial-year",
-    (_event, id: string, updates: any) => {
+    (_event, oldYear: string, newYear: string) => {
       try {
-        scheduler.updateFinancialYear(id, updates);
+        scheduler.updateFinancialYear(oldYear, newYear);
         return { success: true };
       } catch (error: any) {
         return { success: false, message: error.message };
@@ -446,21 +600,35 @@ app.whenReady().then(() => {
 
   ipcMain.handle("create-partner", (_event, name: string) => {
     try {
+      // Log what we're receiving
+      logger.info(
+        `Creating partner: "${name}" (type: ${typeof name})`,
+        undefined,
+        { name }
+      );
       const partner = scheduler.createPartner(name);
       return { success: true, partner };
     } catch (error: any) {
+      logger.error(
+        `Failed to create partner: ${error.message}`,
+        undefined,
+        error
+      );
       return { success: false, message: error.message };
     }
   });
 
-  ipcMain.handle("update-partner", (_event, id: string, updates: any) => {
-    try {
-      scheduler.updatePartner(id, updates);
-      return { success: true };
-    } catch (error: any) {
-      return { success: false, message: error.message };
+  ipcMain.handle(
+    "update-partner",
+    (_event, oldName: string, newName: string) => {
+      try {
+        scheduler.updatePartner(oldName, newName);
+        return { success: true };
+      } catch (error: any) {
+        return { success: false, message: error.message };
+      }
     }
-  });
+  );
 
   ipcMain.handle("delete-partner", (_event, id: string) => {
     try {
@@ -503,6 +671,170 @@ app.whenReady().then(() => {
       return { success: true };
     } catch (error: any) {
       return { success: false, message: error.message };
+    }
+  });
+
+  // Store Handlers
+  ipcMain.handle("get-stores", () => {
+    return scheduler.getStores();
+  });
+
+  ipcMain.handle("create-store", (_event, name: string, shortName: string) => {
+    try {
+      logger.info(
+        `Creating store: "${name}" with short name "${shortName}"`,
+        undefined,
+        { name, shortName }
+      );
+      const store = scheduler.createStore(name, shortName);
+      return { success: true, store };
+    } catch (error: any) {
+      logger.error(
+        `Failed to create store: ${error.message}`,
+        undefined,
+        error
+      );
+      return { success: false, message: error.message };
+    }
+  });
+
+  ipcMain.handle(
+    "update-store",
+    (_event, oldShortName: string, name: string, shortName: string) => {
+      try {
+        const store = scheduler.updateStore(oldShortName, name, shortName);
+        return { success: true, store };
+      } catch (error: any) {
+        return { success: false, message: error.message };
+      }
+    }
+  );
+
+  ipcMain.handle("delete-store", (_event, shortName: string) => {
+    try {
+      scheduler.deleteStore(shortName);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, message: error.message };
+    }
+  });
+
+  // System Users Handlers
+  ipcMain.handle("get-system-users", () => {
+    return scheduler.getSystemUsers();
+  });
+
+  ipcMain.handle(
+    "create-system-user",
+    (_event, name: string, number: string, group: string) => {
+      try {
+        logger.info(
+          `Creating system user: "${name}" with number "${number}" and group "${group}"`,
+          undefined,
+          { name, number, group }
+        );
+        const user = scheduler.createSystemUser(name, number, group);
+        return { success: true, user };
+      } catch (error: any) {
+        logger.error(
+          `Failed to create system user: ${error.message}`,
+          undefined,
+          error
+        );
+        return { success: false, message: error.message };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "update-system-user",
+    (
+      _event,
+      oldNumber: string,
+      name: string,
+      number: string,
+      group: string
+    ) => {
+      try {
+        const user = scheduler.updateSystemUser(oldNumber, name, number, group);
+        return { success: true, user };
+      } catch (error: any) {
+        return { success: false, message: error.message };
+      }
+    }
+  );
+
+  ipcMain.handle("delete-system-user", (_event, number: string) => {
+    try {
+      scheduler.deleteSystemUser(number);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, message: error.message };
+    }
+  });
+
+  // WhatsApp Groups Handlers
+  ipcMain.handle("get-whatsapp-groups", () => {
+    return scheduler.getWhatsAppGroups();
+  });
+
+  ipcMain.handle(
+    "create-whatsapp-group",
+    (_event, name: string, groupId: string) => {
+      try {
+        logger.info(
+          `Creating WhatsApp group: "${name}" with ID: "${groupId}"`,
+          undefined,
+          { name, groupId }
+        );
+        const group = scheduler.createWhatsAppGroup(name, groupId);
+        return { success: true, group };
+      } catch (error: any) {
+        logger.error(
+          `Failed to create WhatsApp group: ${error.message}`,
+          undefined,
+          error
+        );
+        return { success: false, message: error.message };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    "update-whatsapp-group",
+    (_event, oldGroupId: string, name: string, groupId: string) => {
+      try {
+        const group = scheduler.updateWhatsAppGroup(oldGroupId, name, groupId);
+        return { success: true, group };
+      } catch (error: any) {
+        return { success: false, message: error.message };
+      }
+    }
+  );
+
+  ipcMain.handle("delete-whatsapp-group", (_event, groupId: string) => {
+    try {
+      scheduler.deleteWhatsAppGroup(groupId);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, message: error.message };
+    }
+  });
+
+  // Connection Test Handlers
+  ipcMain.handle("test-all-connections", async () => {
+    try {
+      logger.info("Manual connection test triggered");
+      const result = await scheduler.testAllConnectionsAndNotify();
+      return result;
+    } catch (error: any) {
+      logger.error("Failed to test connections", undefined, error);
+      return {
+        success: false,
+        message: error.message,
+        testedCount: 0,
+        results: [],
+      };
     }
   });
 
@@ -660,11 +992,29 @@ app.whenReady().then(() => {
   });
 
   // Now that handlers are registered, create the windows (prevents renderer calling IPC before handlers exist)
+  createTray();
   createSplash();
   createWindow();
 
+  // Show startup notification
+  setTimeout(() => {
+    if (tray && process.platform === "win32") {
+      tray.displayBalloon({
+        title: "SQL Bridge Started",
+        content:
+          "Application is running. Find icon in system tray (bottom-right). Right-click to quit.",
+        icon: nativeImage.createFromPath(
+          path.join(process.resourcesPath || app.getAppPath(), "icon.ico")
+        ),
+      });
+    }
+  }, 3000);
+
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (mainWindow) {
+      mainWindow.show();
+      mainWindow.focus();
+    } else if (BrowserWindow.getAllWindows().length === 0) {
       createSplash();
       createWindow();
     }
@@ -672,16 +1022,17 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    if (scheduler) {
-      scheduler.stopAll();
-    }
-    app.quit();
-  }
+  // Don't quit on window close, just hide to tray
+  // User must explicitly quit from tray menu
+  // Do nothing - app continues running in background
 });
 
 app.on("before-quit", () => {
+  isQuitting = true;
   if (scheduler) {
     scheduler.stopAll();
+  }
+  if (tray) {
+    tray.destroy();
   }
 });

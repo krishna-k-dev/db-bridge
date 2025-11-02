@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { toast } from "sonner"
+import { AdvancedScheduleSelector, generateCron, parseCronToConfig, type ScheduleConfig } from "@/components/AdvancedScheduleSelector"
 
 // @ts-ignore - Electron types
 const { ipcRenderer } = window.require('electron')
@@ -31,21 +32,38 @@ const SettingsPage = () => {
   const [financialYears, setFinancialYears] = useState<string[]>([])
   const [partners, setPartners] = useState<string[]>([])
   const [jobGroups, setJobGroups] = useState<string[]>([])
+  const [stores, setStores] = useState<Array<{ name: string; shortName: string }>>([])
+  const [systemUsers, setSystemUsers] = useState<Array<{ name: string; number: string; group: string }>>([])
+  const [whatsappGroups, setWhatsappGroups] = useState<Array<{ name: string; groupId: string }>>([])
   const [appSettings, setAppSettings] = useState<any>({})
   const [formSettings, setFormSettings] = useState<any>({})
+  const [connectionTestSchedule, setConnectionTestSchedule] = useState<ScheduleConfig>({ type: 'repeated', mode: 'every', everyUnit: 'hours', everyValue: 2 })
   const [isFinancialYearDialogOpen, setIsFinancialYearDialogOpen] = useState(false)
   const [isPartnerDialogOpen, setIsPartnerDialogOpen] = useState(false)
   const [isJobGroupDialogOpen, setIsJobGroupDialogOpen] = useState(false)
+  const [isStoreDialogOpen, setIsStoreDialogOpen] = useState(false)
+  const [isSystemUserDialogOpen, setIsSystemUserDialogOpen] = useState(false)
+  const [isWhatsappGroupDialogOpen, setIsWhatsappGroupDialogOpen] = useState(false)
   const [editingFinancialYear, setEditingFinancialYear] = useState<string | null>(null)
   const [editingPartner, setEditingPartner] = useState<string | null>(null)
   const [editingJobGroup, setEditingJobGroup] = useState<string | null>(null)
-  const [deleteItem, setDeleteItem] = useState<{ type: 'financial-year' | 'partner' | 'job-group', item: string } | null>(null)
+  const [editingStore, setEditingStore] = useState<{ name: string; shortName: string } | null>(null)
+  const [editingSystemUser, setEditingSystemUser] = useState<{ name: string; number: string; group: string } | null>(null)
+  const [editingWhatsappGroup, setEditingWhatsappGroup] = useState<{ name: string; groupId: string } | null>(null)
+  const [deleteItem, setDeleteItem] = useState<{ type: 'financial-year' | 'partner' | 'job-group' | 'store' | 'system-user' | 'whatsapp-group', item: string | { name: string; groupId: string } } | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isTestingConnections, setIsTestingConnections] = useState(false)
+  const [testingProgress, setTestingProgress] = useState<{ [key: string]: 'pending' | 'testing' | 'success' | 'failed' }>({})
+  const [showTestMonitor, setShowTestMonitor] = useState(false)
+  const [allConnections, setAllConnections] = useState<any[]>([])
 
   useEffect(() => {
     loadFinancialYears()
     loadPartners()
     loadJobGroups()
+    loadStores()
+    loadSystemUsers()
+    loadWhatsappGroups()
     loadAppSettings()
   }, [])
 
@@ -58,8 +76,23 @@ const SettingsPage = () => {
       jobQueueMaxConcurrent: appSettings.jobQueueMaxConcurrent ?? 10,
       enableProgressStreaming: appSettings.enableProgressStreaming !== false,
       logVerbosity: appSettings.logVerbosity ?? 'info',
+      sheetNameFormat: appSettings.sheetNameFormat ?? 'databaseName',
+      connectionTestEnabled: appSettings.connectionTestEnabled ?? false,
+      connectionTestInterval: appSettings.connectionTestInterval ?? 2,
+      connectionTestSendTo: appSettings.connectionTestSendTo ?? 'number',
+      connectionTestShowFailed: appSettings.connectionTestShowFailed !== false,
+      connectionTestShowPassed: appSettings.connectionTestShowPassed === true,
       ...appSettings,
     })
+    
+    // Parse connection test schedule from cron or interval (backward compatible)
+    if (appSettings.connectionTestCron) {
+      setConnectionTestSchedule(parseCronToConfig(appSettings.connectionTestCron))
+    } else {
+      // Convert old interval format (hours) to new repeated format
+      const intervalHours = appSettings.connectionTestInterval ?? 2
+      setConnectionTestSchedule({ type: 'repeated', mode: 'every', everyUnit: 'hours', everyValue: intervalHours })
+    }
   }, [appSettings])
 
   const loadFinancialYears = async () => {
@@ -95,6 +128,39 @@ const SettingsPage = () => {
     }
   }
 
+  const loadStores = async () => {
+    try {
+      const data = await ipcRenderer.invoke('get-stores')
+      if (data) {
+        setStores(data)
+      }
+    } catch (error) {
+      console.error('Failed to load stores:', error)
+    }
+  }
+
+  const loadSystemUsers = async () => {
+    try {
+      const data = await ipcRenderer.invoke('get-system-users')
+      if (data) {
+        setSystemUsers(data)
+      }
+    } catch (error) {
+      console.error('Failed to load system users:', error)
+    }
+  }
+
+  const loadWhatsappGroups = async () => {
+    try {
+      const data = await ipcRenderer.invoke('get-whatsapp-groups')
+      if (data) {
+        setWhatsappGroups(data)
+      }
+    } catch (error) {
+      console.error('Failed to load WhatsApp groups:', error)
+    }
+  }
+
   const loadAppSettings = async () => {
     try {
       const data = await ipcRenderer.invoke('get-settings')
@@ -113,21 +179,34 @@ const SettingsPage = () => {
     const formData = new FormData(e.currentTarget)
     const year = formData.get('year') as string
 
+    if (!year || !year.trim()) {
+      toast.error('Financial year cannot be empty')
+      setIsLoading(false)
+      return
+    }
+
     try {
+      let result
       if (editingFinancialYear) {
-        await ipcRenderer.invoke('update-financial-year', editingFinancialYear, { year })
-        toast.success('Financial year updated successfully!')
+        // Backend expects: updateFinancialYear(oldYear: string, newYear: string)
+        result = await ipcRenderer.invoke('update-financial-year', editingFinancialYear, year.trim())
       } else {
-        // main handler expects a string year, not an object
-        await ipcRenderer.invoke('create-financial-year', year)
-        toast.success('Financial year added successfully!')
+        // Backend expects: createFinancialYear(year: string)
+        result = await ipcRenderer.invoke('create-financial-year', year.trim())
       }
-      loadFinancialYears()
-      setIsFinancialYearDialogOpen(false)
-      setEditingFinancialYear(null)
-    } catch (error) {
+      
+      // Check if the operation was successful
+      if (result.success) {
+        toast.success(editingFinancialYear ? 'Financial year updated successfully!' : 'Financial year added successfully!')
+        loadFinancialYears()
+        setIsFinancialYearDialogOpen(false)
+        setEditingFinancialYear(null)
+      } else {
+        toast.error(result.message || 'Failed to save financial year')
+      }
+    } catch (error: any) {
       console.error('Failed to save financial year:', error)
-      toast.error('Failed to save financial year. Please try again.')
+      toast.error(error?.message || 'Failed to save financial year. Please try again.')
     } finally {
       setIsLoading(false)
     }
@@ -140,21 +219,34 @@ const SettingsPage = () => {
     const formData = new FormData(e.currentTarget)
     const name = formData.get('name') as string
 
+    if (!name || !name.trim()) {
+      toast.error('Partner name cannot be empty')
+      setIsLoading(false)
+      return
+    }
+
     try {
+      let result
       if (editingPartner) {
-        await ipcRenderer.invoke('update-partner', editingPartner, { name })
-        toast.success('Partner updated successfully!')
+        // Backend expects: updatePartner(oldName: string, newName: string)
+        result = await ipcRenderer.invoke('update-partner', editingPartner, name.trim())
       } else {
-        // main handler expects a string name, not an object
-        await ipcRenderer.invoke('create-partner', name)
-        toast.success('Partner added successfully!')
+        // Backend expects: createPartner(name: string)
+        result = await ipcRenderer.invoke('create-partner', name.trim())
       }
-      loadPartners()
-      setIsPartnerDialogOpen(false)
-      setEditingPartner(null)
-    } catch (error) {
+      
+      // Check if the operation was successful
+      if (result.success) {
+        toast.success(editingPartner ? 'Partner updated successfully!' : 'Partner added successfully!')
+        loadPartners()
+        setIsPartnerDialogOpen(false)
+        setEditingPartner(null)
+      } else {
+        toast.error(result.message || 'Failed to save partner')
+      }
+    } catch (error: any) {
       console.error('Failed to save partner:', error)
-      toast.error('Failed to save partner. Please try again.')
+      toast.error(error?.message || 'Failed to save partner. Please try again.')
     } finally {
       setIsLoading(false)
     }
@@ -186,6 +278,145 @@ const SettingsPage = () => {
     }
   }
 
+  const handleSaveStore = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setIsLoading(true)
+
+    const formData = new FormData(e.currentTarget)
+    const name = formData.get('store-name') as string
+    const shortName = formData.get('store-short-name') as string
+
+    if (!name || !name.trim()) {
+      toast.error('Store name cannot be empty')
+      setIsLoading(false)
+      return
+    }
+
+    if (!shortName || !shortName.trim()) {
+      toast.error('Store short name cannot be empty')
+      setIsLoading(false)
+      return
+    }
+
+    try {
+      let result
+      if (editingStore) {
+        result = await ipcRenderer.invoke('update-store', editingStore.shortName, name.trim(), shortName.trim())
+      } else {
+        result = await ipcRenderer.invoke('create-store', name.trim(), shortName.trim())
+      }
+      
+      if (result.success) {
+        toast.success(editingStore ? 'Store updated successfully!' : 'Store added successfully!')
+        loadStores()
+        setIsStoreDialogOpen(false)
+        setEditingStore(null)
+      } else {
+        toast.error(result.message || 'Failed to save store')
+      }
+    } catch (error: any) {
+      console.error('Failed to save store:', error)
+      toast.error(error?.message || 'Failed to save store. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleSaveSystemUser = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setIsLoading(true)
+
+    const formData = new FormData(e.currentTarget)
+    const name = formData.get('user-name') as string
+    const number = formData.get('user-number') as string
+    const group = formData.get('user-group') as string
+
+    if (!name || !name.trim()) {
+      toast.error('User name cannot be empty')
+      setIsLoading(false)
+      return
+    }
+
+    if (!number || !number.trim()) {
+      toast.error('User number cannot be empty')
+      setIsLoading(false)
+      return
+    }
+
+    if (!group || !group.trim()) {
+      toast.error('User group cannot be empty')
+      setIsLoading(false)
+      return
+    }
+
+    try {
+      let result
+      if (editingSystemUser) {
+        result = await ipcRenderer.invoke('update-system-user', editingSystemUser.number, name.trim(), number.trim(), group.trim())
+      } else {
+        result = await ipcRenderer.invoke('create-system-user', name.trim(), number.trim(), group.trim())
+      }
+      
+      if (result.success) {
+        toast.success(editingSystemUser ? 'System user updated successfully!' : 'System user added successfully!')
+        loadSystemUsers()
+        setIsSystemUserDialogOpen(false)
+        setEditingSystemUser(null)
+      } else {
+        toast.error(result.message || 'Failed to save system user')
+      }
+    } catch (error: any) {
+      console.error('Failed to save system user:', error)
+      toast.error(error?.message || 'Failed to save system user. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleSaveWhatsappGroup = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    setIsLoading(true)
+
+    const formData = new FormData(e.currentTarget)
+    const groupName = formData.get('whatsapp-group-name') as string
+    const groupId = formData.get('whatsapp-group-id') as string
+
+    if (!groupName || !groupName.trim()) {
+      toast.error('WhatsApp group name cannot be empty')
+      setIsLoading(false)
+      return
+    }
+
+    if (!groupId || !groupId.trim()) {
+      toast.error('WhatsApp group ID cannot be empty')
+      setIsLoading(false)
+      return
+    }
+
+    try {
+      let result
+      if (editingWhatsappGroup) {
+        result = await ipcRenderer.invoke('update-whatsapp-group', editingWhatsappGroup.groupId, groupName.trim(), groupId.trim())
+      } else {
+        result = await ipcRenderer.invoke('create-whatsapp-group', groupName.trim(), groupId.trim())
+      }
+      
+      if (result.success) {
+        toast.success(editingWhatsappGroup ? 'WhatsApp group updated successfully!' : 'WhatsApp group added successfully!')
+        loadWhatsappGroups()
+        setIsWhatsappGroupDialogOpen(false)
+        setEditingWhatsappGroup(null)
+      } else {
+        toast.error(result.message || 'Failed to save WhatsApp group')
+      }
+    } catch (error: any) {
+      console.error('Failed to save WhatsApp group:', error)
+      toast.error(error?.message || 'Failed to save WhatsApp group. Please try again.')
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
   const handleSaveAppSettings = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setIsLoading(true)
@@ -196,7 +427,31 @@ const SettingsPage = () => {
   const maxConcurrentConnections = parseInt(formData.get('maxConcurrentConnections') as string) || formSettings.maxConcurrentConnections || 50
   const jobQueueMaxConcurrent = parseInt(formData.get('jobQueueMaxConcurrent') as string) || formSettings.jobQueueMaxConcurrent || 10
   const enableProgressStreaming = formData.get('enableProgressStreaming') === 'on' || !!formSettings.enableProgressStreaming
+  const sheetNameFormat = formData.get('sheetNameFormat') as string || formSettings.sheetNameFormat || 'databaseName'
   const logVerbosity = formData.get('logVerbosity') as string || formSettings.logVerbosity || 'info'
+  
+  // Connection Test Settings
+  const connectionTestEnabled = formData.get('connectionTestEnabled') === 'on'
+  const connectionTestSendTo = (formData.get('connectionTestSendTo') as "number" | "groups") || 'number'
+  const connectionTestShowFailed = formData.get('connectionTestShowFailed') === 'on'
+  const connectionTestShowPassed = formData.get('connectionTestShowPassed') === 'on'
+  
+  // Generate cron from schedule config
+  const connectionTestCron = generateCron(connectionTestSchedule)
+  // For backward compatibility, also keep interval (in hours)
+  let connectionTestInterval = 2
+  if (connectionTestSchedule.type === 'repeated') {
+    if (connectionTestSchedule.mode === 'every') {
+      if (connectionTestSchedule.everyUnit === 'hours') {
+        connectionTestInterval = connectionTestSchedule.everyValue ?? 1
+      } else {
+        // minutes -> convert to hours (rounded)
+        connectionTestInterval = Math.max(1, Math.round((connectionTestSchedule.everyValue ?? 60) / 60))
+      }
+    } else if (connectionTestSchedule.mode === 'hourlyAt') {
+      connectionTestInterval = 1
+    }
+  }
 
     try {
       await ipcRenderer.invoke('update-settings', {
@@ -206,7 +461,14 @@ const SettingsPage = () => {
         maxConcurrentConnections,
         jobQueueMaxConcurrent,
         enableProgressStreaming,
-        logVerbosity
+        sheetNameFormat,
+        logVerbosity,
+        connectionTestEnabled,
+        connectionTestInterval,
+        connectionTestCron,
+        connectionTestSendTo,
+        connectionTestShowFailed,
+        connectionTestShowPassed
       })
       setAppSettings({ 
         ...appSettings, 
@@ -215,7 +477,14 @@ const SettingsPage = () => {
         maxConcurrentConnections,
         jobQueueMaxConcurrent,
         enableProgressStreaming,
-        logVerbosity
+        sheetNameFormat,
+        logVerbosity,
+        connectionTestEnabled,
+        connectionTestInterval,
+        connectionTestCron,
+        connectionTestSendTo,
+        connectionTestShowFailed,
+        connectionTestShowPassed
       })
       toast.success('Application settings updated successfully!')
     } catch (error) {
@@ -243,6 +512,18 @@ const SettingsPage = () => {
         await ipcRenderer.invoke('delete-job-group', deleteItem.item as string)
         toast.success('Job group deleted successfully!')
         loadJobGroups()
+      } else if (deleteItem.type === 'store') {
+        await ipcRenderer.invoke('delete-store', deleteItem.item)
+        toast.success('Store deleted successfully!')
+        loadStores()
+      } else if (deleteItem.type === 'system-user') {
+        await ipcRenderer.invoke('delete-system-user', deleteItem.item)
+        toast.success('System user deleted successfully!')
+        loadSystemUsers()
+      } else if (deleteItem.type === 'whatsapp-group') {
+        await ipcRenderer.invoke('delete-whatsapp-group', (deleteItem.item as { name: string; groupId: string }).groupId)
+        toast.success('WhatsApp group deleted successfully!')
+        loadWhatsappGroups()
       }
       setDeleteItem(null)
     } catch (error) {
@@ -264,6 +545,89 @@ const SettingsPage = () => {
   const openJobGroupDialog = (jobGroup?: string) => {
     setEditingJobGroup(jobGroup || null)
     setIsJobGroupDialogOpen(true)
+  }
+
+  const openStoreDialog = (store?: { name: string; shortName: string }) => {
+    setEditingStore(store || null)
+    setIsStoreDialogOpen(true)
+  }
+
+  const openSystemUserDialog = (user?: { name: string; number: string; group: string }) => {
+    setEditingSystemUser(user || null)
+    setIsSystemUserDialogOpen(true)
+  }
+
+  const openWhatsappGroupDialog = (group?: { name: string; groupId: string }) => {
+    setEditingWhatsappGroup(group || null)
+    setIsWhatsappGroupDialogOpen(true)
+  }
+
+  const handleTestNow = async () => {
+    if (isTestingConnections) {
+      toast.warning('Test already in progress')
+      return
+    }
+
+    try {
+      // Load connections first
+      const data = await ipcRenderer.invoke('get-connections')
+      const connections = data || []
+      
+      if (connections.length === 0) {
+        toast.warning('No connections to test')
+        return
+      }
+
+      setAllConnections(connections)
+      setIsTestingConnections(true)
+      setShowTestMonitor(true)
+      
+      // Initialize all connections as testing (parallel execution)
+      const initialProgress: { [key: string]: 'pending' | 'testing' | 'success' | 'failed' } = {}
+      connections.forEach((c: any) => {
+        initialProgress[c.id] = 'testing'
+      })
+      setTestingProgress(initialProgress)
+
+      // Test all connections in PARALLEL for speed (same as before)
+      const results = await Promise.all(
+        connections.map(async (connection: any) => {
+          try {
+            const result = await ipcRenderer.invoke('test-connection', connection.id)
+            const status = result.success ? 'success' : 'failed'
+            setTestingProgress(prev => ({ ...prev, [connection.id]: status }))
+            return { id: connection.id, success: result.success }
+          } catch (error) {
+            setTestingProgress(prev => ({ ...prev, [connection.id]: 'failed' }))
+            return { id: connection.id, success: false }
+          }
+        })
+      )
+
+      const successCount = results.filter(r => r.success).length
+      const failCount = results.filter(r => !r.success).length
+
+      // After all tests complete, send WhatsApp notification in background
+      // This runs async - doesn't block the UI
+      ipcRenderer.invoke('test-all-connections').catch((err: any) => {
+        console.error('Failed to send WhatsApp notification:', err)
+      })
+
+      const summary = `Test completed: ${successCount} successful, ${failCount} failed`
+      
+      // Keep monitor open for 2 more seconds to show results
+      setTimeout(() => {
+        setShowTestMonitor(false)
+        setIsTestingConnections(false)
+      }, 2000)
+
+      toast.success(summary)
+    } catch (error: any) {
+      console.error('Failed to test connections:', error)
+      toast.error(error?.message || 'Failed to test connections. Please try again.')
+      setShowTestMonitor(false)
+      setIsTestingConnections(false)
+    }
   }
 
   return (
@@ -391,6 +755,28 @@ const SettingsPage = () => {
               </div>
             </div>
 
+            {/* Excel/Sheets Configuration */}
+            <div className="border-b pb-4">
+              <h4 className="text-md font-medium text-gray-800 mb-3">Excel & Google Sheets</h4>
+              <div className="space-y-2">
+                <Label htmlFor="sheetNameFormat">Sheet Name Format</Label>
+                <select
+                  id="sheetNameFormat"
+                  name="sheetNameFormat"
+                  value={formSettings.sheetNameFormat || 'databaseName'}
+                  onChange={(e) => setFormSettings({...formSettings, sheetNameFormat: e.target.value})}
+                  className="w-full md:w-64 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  <option value="databaseName">Database Name (Default)</option>
+                  <option value="connectionName">Connection Name</option>
+                  <option value="storeName">Store Name</option>
+                </select>
+                <p className="text-sm text-gray-600">
+                  Choose how sheet names are generated in Excel and Google Sheets exports.
+                </p>
+              </div>
+            </div>
+
             {/* Logging */}
             <div className="pb-4">
               <h4 className="text-md font-medium text-gray-800 mb-3">Logging</h4>
@@ -411,6 +797,130 @@ const SettingsPage = () => {
                 <p className="text-sm text-gray-600">
                   Control the level of detail in application logs.
                 </p>
+              </div>
+            </div>
+
+            {/* Connection Test Settings */}
+            <div className="border-t pt-4">
+              <h4 className="text-md font-medium text-gray-800 mb-3">📡 Connection Test (WhatsApp Notifications)</h4>
+              
+              <div className="space-y-4">
+                {/* Enable/Disable */}
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="connectionTestEnabled"
+                    name="connectionTestEnabled"
+                    checked={formSettings.connectionTestEnabled || false}
+                    onChange={(e) => setFormSettings({...formSettings, connectionTestEnabled: e.target.checked})}
+                    className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
+                  />
+                  <Label htmlFor="connectionTestEnabled" className="cursor-pointer">
+                    Enable Automated Connection Testing
+                  </Label>
+                </div>
+
+                {/* Test Schedule - Full Control */}
+                <div className="space-y-3">
+                  <Label>Test Schedule</Label>
+                  <p className="text-sm text-gray-600 mb-3">
+                    Complete control over when connection tests run (every X minutes/hours, daily at specific time, etc.)
+                  </p>
+                  <AdvancedScheduleSelector
+                    value={connectionTestSchedule}
+                    onChange={setConnectionTestSchedule}
+                  />
+                </div>
+
+                {/* Send To Selection */}
+                <div className="space-y-2">
+                  <Label>Send Notifications To</Label>
+                  <div className="flex gap-6">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        id="sendToNumber"
+                        name="connectionTestSendTo"
+                        value="number"
+                        checked={formSettings.connectionTestSendTo !== 'groups'}
+                        onChange={(e) => setFormSettings({...formSettings, connectionTestSendTo: e.target.value as "number" | "groups"})}
+                        className="w-4 h-4 text-primary border-gray-300 focus:ring-primary"
+                      />
+                      <label htmlFor="sendToNumber" className="text-sm cursor-pointer">
+                        WhatsApp Number (All System Users)
+                      </label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="radio"
+                        id="sendToGroups"
+                        name="connectionTestSendTo"
+                        value="groups"
+                        checked={formSettings.connectionTestSendTo === 'groups'}
+                        onChange={(e) => setFormSettings({...formSettings, connectionTestSendTo: e.target.value as "number" | "groups"})}
+                        className="w-4 h-4 text-primary border-gray-300 focus:ring-primary"
+                      />
+                      <label htmlFor="sendToGroups" className="text-sm cursor-pointer">
+                        WhatsApp Groups (All Groups)
+                      </label>
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    {formSettings.connectionTestSendTo === 'groups' 
+                      ? `Will send notifications to all ${whatsappGroups.length} configured WhatsApp groups`
+                      : `Will send notifications to all ${systemUsers.length} configured system users`
+                    }
+                  </p>
+                </div>
+
+                {/* Status Filters */}
+                <div className="space-y-2">
+                  <Label>Show Status</Label>
+                  <div className="flex gap-6">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="showFailed"
+                        name="connectionTestShowFailed"
+                        checked={formSettings.connectionTestShowFailed !== false}
+                        onChange={(e) => setFormSettings({...formSettings, connectionTestShowFailed: e.target.checked})}
+                        className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
+                      />
+                      <label htmlFor="showFailed" className="text-sm cursor-pointer">Failed Connections</label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="showPassed"
+                        name="connectionTestShowPassed"
+                        checked={formSettings.connectionTestShowPassed === true}
+                        onChange={(e) => setFormSettings({...formSettings, connectionTestShowPassed: e.target.checked})}
+                        className="w-4 h-4 text-primary border-gray-300 rounded focus:ring-primary"
+                      />
+                      <label htmlFor="showPassed" className="text-sm cursor-pointer">Passed Connections</label>
+                    </div>
+                  </div>
+                  <p className="text-sm text-gray-600">
+                    Filter which connection statuses to include in notifications
+                  </p>
+                </div>
+
+                {/* Manual Test Now Button */}
+                <div className="space-y-2">
+                  <Label>Manual Test</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleTestNow}
+                    disabled={isTestingConnections}
+                    className="w-full md:w-auto"
+                  >
+                    {isTestingConnections ? 'Testing...' : 'Test Now'}
+                  </Button>
+                  <p className="text-sm text-gray-600">
+                    Manually trigger a connection test and send notifications immediately
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -467,7 +977,7 @@ const SettingsPage = () => {
                 </DialogContent>
               </Dialog>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
               {financialYears.length === 0 ? (
                 <div className="text-sm text-gray-500">No financial years configured</div>
               ) : (
@@ -540,7 +1050,7 @@ const SettingsPage = () => {
                 </DialogContent>
               </Dialog>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
               {partners.length === 0 ? (
                 <div className="text-sm text-gray-500">No partners configured</div>
               ) : (
@@ -613,7 +1123,7 @@ const SettingsPage = () => {
                 </DialogContent>
               </Dialog>
             </div>
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
               {jobGroups.length === 0 ? (
                 <div className="text-sm text-gray-500">No job groups configured</div>
               ) : (
@@ -639,6 +1149,275 @@ const SettingsPage = () => {
               )}
             </div>
           </div>
+
+          {/* Stores Section */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Stores</h3>
+              <Dialog open={isStoreDialogOpen} onOpenChange={setIsStoreDialogOpen}>
+                <DialogTrigger asChild>
+                  <button
+                    onClick={() => openStoreDialog()}
+                    className="flex items-center gap-2 px-3 py-1 bg-primary text-white text-sm rounded hover:bg-primary/90 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Store
+                  </button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>{editingStore ? 'Edit Store' : 'Add Store'}</DialogTitle>
+                    <DialogDescription>
+                      {editingStore ? 'Update the store details.' : 'Add a new store with name and short name.'}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={handleSaveStore}>
+                    <div className="space-y-4 py-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="store-name">Store Name</Label>
+                        <Input
+                          id="store-name"
+                          name="store-name"
+                          defaultValue={editingStore?.name || ''}
+                          placeholder="Store Full Name"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="store-short-name">Short Name</Label>
+                        <Input
+                          id="store-short-name"
+                          name="store-short-name"
+                          defaultValue={editingStore?.shortName || ''}
+                          placeholder="Short Name (will be shown in selections)"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => setIsStoreDialogOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button type="submit" disabled={isLoading}>
+                        {isLoading ? 'Saving...' : (editingStore ? 'Update' : 'Add')}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              {stores.length === 0 ? (
+                <div className="text-sm text-gray-500">No stores configured</div>
+              ) : (
+                stores.map((store) => (
+                  <div key={store.shortName} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div>
+                      <span className="font-medium">{store.name}</span>
+                      <span className="text-sm text-gray-500 ml-2">({store.shortName})</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => openStoreDialog(store)}
+                        className="p-1 hover:bg-gray-200 rounded transition-colors"
+                      >
+                        <Edit className="w-4 h-4 text-gray-600" />
+                      </button>
+                      <button
+                        onClick={() => setDeleteItem({ type: 'store', item: store.shortName })}
+                        className="p-1 hover:bg-gray-200 rounded transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4 text-red-600" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* System Users Section */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">System Users</h3>
+              <Dialog open={isSystemUserDialogOpen} onOpenChange={setIsSystemUserDialogOpen}>
+                <DialogTrigger asChild>
+                  <button
+                    onClick={() => openSystemUserDialog()}
+                    className="flex items-center gap-2 px-3 py-1 bg-primary text-white text-sm rounded hover:bg-primary/90 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add System User
+                  </button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>{editingSystemUser ? 'Edit System User' : 'Add System User'}</DialogTitle>
+                    <DialogDescription>
+                      {editingSystemUser ? 'Update the system user details.' : 'Add a new system user for WhatsApp notifications.'}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={handleSaveSystemUser}>
+                    <div className="space-y-4 py-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="user-name">Name</Label>
+                        <Input
+                          id="user-name"
+                          name="user-name"
+                          defaultValue={editingSystemUser?.name || ''}
+                          placeholder="User Name"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="user-number">WhatsApp Number</Label>
+                        <Input
+                          id="user-number"
+                          name="user-number"
+                          defaultValue={editingSystemUser?.number || ''}
+                          placeholder="919876543210"
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="user-group">Group</Label>
+                        <Input
+                          id="user-group"
+                          name="user-group"
+                          defaultValue={editingSystemUser?.group || ''}
+                          placeholder="Admin, Developer, Manager, etc."
+                          required
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => setIsSystemUserDialogOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button type="submit" disabled={isLoading}>
+                        {isLoading ? 'Saving...' : (editingSystemUser ? 'Update' : 'Add')}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              {systemUsers.length === 0 ? (
+                <div className="text-sm text-gray-500">No system users configured</div>
+              ) : (
+                systemUsers.map((user) => (
+                  <div key={user.number} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div>
+                      <span className="font-medium">{user.name}</span>
+                      <span className="text-sm text-gray-500 ml-2">• {user.number}</span>
+                      <span className="text-xs text-blue-600 ml-2 bg-blue-50 px-2 py-0.5 rounded">{user.group}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => openSystemUserDialog(user)}
+                        className="p-1 hover:bg-gray-200 rounded transition-colors"
+                      >
+                        <Edit className="w-4 h-4 text-gray-600" />
+                      </button>
+                      <button
+                        onClick={() => setDeleteItem({ type: 'system-user', item: user.number })}
+                        className="p-1 hover:bg-gray-200 rounded transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4 text-red-600" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* WhatsApp Groups Section */}
+          <div className="bg-white rounded-lg border border-gray-200 p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">WhatsApp Groups</h3>
+              <Dialog open={isWhatsappGroupDialogOpen} onOpenChange={setIsWhatsappGroupDialogOpen}>
+                <DialogTrigger asChild>
+                  <button
+                    onClick={() => openWhatsappGroupDialog()}
+                    className="flex items-center gap-2 px-3 py-1 bg-primary text-white text-sm rounded hover:bg-primary/90 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Group
+                  </button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>{editingWhatsappGroup ? 'Edit WhatsApp Group' : 'Add WhatsApp Group'}</DialogTitle>
+                    <DialogDescription>
+                      {editingWhatsappGroup ? 'Update the group name and ID.' : 'Add a new WhatsApp group for notifications.'}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <form onSubmit={handleSaveWhatsappGroup}>
+                    <div className="space-y-4 py-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="whatsapp-group-name">Group Name</Label>
+                        <Input
+                          id="whatsapp-group-name"
+                          name="whatsapp-group-name"
+                          defaultValue={editingWhatsappGroup?.name || ''}
+                          placeholder="e.g., Tech Team, Management, etc."
+                          required
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="whatsapp-group-id">Group ID</Label>
+                        <Input
+                          id="whatsapp-group-id"
+                          name="whatsapp-group-id"
+                          defaultValue={editingWhatsappGroup?.groupId || ''}
+                          placeholder="e.g., 120363123456789012@g.us"
+                          required
+                        />
+                      </div>
+                    </div>
+                    <DialogFooter>
+                      <Button type="button" variant="outline" onClick={() => setIsWhatsappGroupDialogOpen(false)}>
+                        Cancel
+                      </Button>
+                      <Button type="submit" disabled={isLoading}>
+                        {isLoading ? 'Saving...' : (editingWhatsappGroup ? 'Update' : 'Add')}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </DialogContent>
+              </Dialog>
+            </div>
+            <div className="space-y-2 max-h-[400px] overflow-y-auto">
+              {whatsappGroups.length === 0 ? (
+                <div className="text-sm text-gray-500">No WhatsApp groups configured</div>
+              ) : (
+                whatsappGroups.map((group) => (
+                  <div key={group.groupId} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                    <div className="flex flex-col">
+                      <span className="font-medium">{group.name}</span>
+                      <span className="text-xs text-gray-500">{group.groupId}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => openWhatsappGroupDialog(group)}
+                        className="p-1 hover:bg-gray-200 rounded transition-colors"
+                      >
+                        <Edit className="w-4 h-4 text-gray-600" />
+                      </button>
+                      <button
+                        onClick={() => setDeleteItem({ type: 'whatsapp-group', item: group })}
+                        className="p-1 hover:bg-gray-200 rounded transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4 text-red-600" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -646,9 +1425,9 @@ const SettingsPage = () => {
       <AlertDialog open={!!deleteItem} onOpenChange={() => setDeleteItem(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {deleteItem?.type === 'financial-year' ? 'Financial Year' : deleteItem?.type === 'partner' ? 'Partner' : 'Job Group'}</AlertDialogTitle>
+            <AlertDialogTitle>Delete {deleteItem?.type === 'financial-year' ? 'Financial Year' : deleteItem?.type === 'partner' ? 'Partner' : deleteItem?.type === 'whatsapp-group' ? 'WhatsApp Group' : 'Job Group'}</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{deleteItem?.item}"?
+              Are you sure you want to delete "{typeof deleteItem?.item === 'string' ? deleteItem.item : deleteItem?.item?.name}"?
               This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -660,6 +1439,45 @@ const SettingsPage = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Test All Connections Monitor */}
+      <Dialog open={showTestMonitor} onOpenChange={setShowTestMonitor}>
+        <DialogContent className="max-w-2xl max-h-[600px]">
+          <DialogHeader>
+            <DialogTitle>Testing Connections</DialogTitle>
+            <DialogDescription>
+              Testing {allConnections.length} connections...
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4 space-y-2 max-h-[400px] overflow-y-auto">
+            {allConnections.map(conn => {
+              const status = testingProgress[conn.id] || 'pending'
+              return (
+                <div key={conn.id} className="flex items-center justify-between p-3 border rounded-lg bg-gray-50">
+                  <div className="flex-1">
+                    <div className="font-medium text-sm">{conn.name}</div>
+                    <div className="text-xs text-gray-600">{conn.server} / {conn.database}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {status === 'pending' && (
+                      <span className="px-2 py-1 text-xs bg-gray-200 text-gray-700 rounded-full">Pending</span>
+                    )}
+                    {status === 'testing' && (
+                      <span className="px-2 py-1 text-xs bg-blue-200 text-blue-700 rounded-full animate-pulse">Testing...</span>
+                    )}
+                    {status === 'success' && (
+                      <span className="px-2 py-1 text-xs bg-green-200 text-green-700 rounded-full">✓ Connected</span>
+                    )}
+                    {status === 'failed' && (
+                      <span className="px-2 py-1 text-xs bg-red-200 text-red-700 rounded-full">✗ Failed</span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

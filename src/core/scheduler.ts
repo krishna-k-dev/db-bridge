@@ -15,11 +15,12 @@ export class JobScheduler {
   private configPath: string;
 
   constructor(configPath?: string) {
-    this.executor = new JobExecutor();
     // Use app.getPath('userData') for packaged app
     const userDataPath = app.getPath("userData");
     this.configPath =
       configPath || path.join(userDataPath, "config", "config.json");
+    // Initialize executor with settings (will be updated after loading config)
+    this.executor = new JobExecutor(this.settings);
   }
 
   // Normalize server and port to a canonical key for duplicate detection
@@ -62,6 +63,88 @@ export class JobScheduler {
       this.connections = config.connections || [];
       this.jobs = config.jobs || [];
       this.settings = config.settings || {};
+
+      // Ensure settings has all required arrays initialized
+      if (!this.settings.financialYears) {
+        this.settings.financialYears = [];
+      }
+      if (!this.settings.partners) {
+        this.settings.partners = [];
+      }
+      if (!this.settings.jobGroups) {
+        this.settings.jobGroups = [];
+      }
+      if (!this.settings.systemUsers) {
+        this.settings.systemUsers = [];
+      }
+      if (!this.settings.whatsappGroups) {
+        this.settings.whatsappGroups = [];
+      }
+      // Initialize connection test settings with defaults
+      if (this.settings.connectionTestEnabled === undefined) {
+        this.settings.connectionTestEnabled = false;
+      }
+      if (!this.settings.connectionTestInterval) {
+        this.settings.connectionTestInterval = 2; // default 2 hours
+      }
+      if (!this.settings.connectionTestSendTo) {
+        this.settings.connectionTestSendTo = "number";
+      }
+      if (!this.settings.connectionTestWhatsAppGroups) {
+        this.settings.connectionTestWhatsAppGroups = [];
+      }
+      if (this.settings.connectionTestShowFailed === undefined) {
+        this.settings.connectionTestShowFailed = true; // default show failed
+      }
+      if (this.settings.connectionTestShowPassed === undefined) {
+        this.settings.connectionTestShowPassed = false; // default hide passed
+      }
+
+      // MIGRATION: Convert old format (objects) to new format (strings)
+      // Financial Years: {id, year} -> "year"
+      if (this.settings.financialYears.length > 0) {
+        this.settings.financialYears = this.settings.financialYears.map(
+          (item: any) => {
+            if (typeof item === "object" && item.year) {
+              return item.year; // Extract year string from object
+            }
+            return item; // Already a string
+          }
+        );
+        logger.info(`Migrated financial years to new format`, undefined, {
+          financialYears: this.settings.financialYears,
+        });
+      }
+
+      // Partners: {id, name} -> "name"
+      if (this.settings.partners.length > 0) {
+        this.settings.partners = this.settings.partners.map((item: any) => {
+          if (typeof item === "object" && item.name) {
+            return item.name; // Extract name string from object
+          }
+          return item; // Already a string
+        });
+        logger.info(`Migrated partners to new format`, undefined, {
+          partners: this.settings.partners,
+        });
+      }
+
+      // Job Groups: {id, name} -> "name"
+      if (this.settings.jobGroups.length > 0) {
+        this.settings.jobGroups = this.settings.jobGroups.map((item: any) => {
+          if (typeof item === "object" && item.name) {
+            return item.name; // Extract name string from object
+          }
+          return item; // Already a string
+        });
+        logger.info(`Migrated job groups to new format`, undefined, {
+          jobGroups: this.settings.jobGroups,
+        });
+      }
+
+      // Update executor with loaded settings
+      this.executor.updateSettings(this.settings);
+
       logger.info(
         `Loaded ${this.connections.length} connections and ${this.jobs.length} jobs from config`
       );
@@ -78,14 +161,24 @@ export class JobScheduler {
         fs.mkdirSync(configDir, { recursive: true });
       }
 
+      const settings = this.getSettings();
+      logger.info(`[saveConfig] Settings to save:`, undefined, {
+        financialYears: settings.financialYears,
+        partners: settings.partners,
+        jobGroups: settings.jobGroups,
+      });
+
       const config: AppConfig = {
         connections: this.connections,
         jobs: this.jobs,
-        settings: this.getSettings(),
+        settings: settings,
       };
-      fs.writeFileSync(this.configPath, JSON.stringify(config, null, 2));
 
-      logger.info("Config saved");
+      const configJson = JSON.stringify(config, null, 2);
+      logger.info(`[saveConfig] Writing to: ${this.configPath}`);
+      fs.writeFileSync(this.configPath, configJson);
+
+      logger.info("Config saved successfully");
     } catch (error: any) {
       logger.error("Failed to save config", undefined, error);
       throw error;
@@ -634,11 +727,19 @@ export class JobScheduler {
     // Create a duplicate with a new ID and modified name
     const duplicatedConnection: SQLConnection = {
       ...originalConnection,
-      id: `conn_${Date.now()}`,
+      // Ensure new unique id
+      id: `conn_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`,
       name: `${originalConnection.name} (Copy)`,
     };
 
-    this.addConnection(duplicatedConnection);
+    // When duplicating we want a true separate entry even if server/database/port
+    // match an existing connection. Calling addConnection would try to deduplicate
+    // based on server/database/port and update the existing entry instead of
+    // creating a new one. Push directly to the connections array to preserve
+    // the original and create a distinct duplicate entry.
+    this.connections.push(duplicatedConnection);
+    this.saveConfig();
+
     logger.info(
       `Duplicated connection: ${connectionId} -> ${duplicatedConnection.id}`
     );
@@ -801,11 +902,19 @@ export class JobScheduler {
 
   // Settings methods
   getSettings(): any {
-    return this.settings;
+    // Ensure settings always has the required properties
+    return {
+      financialYears: this.settings.financialYears || [],
+      partners: this.settings.partners || [],
+      jobGroups: this.settings.jobGroups || [],
+      ...this.settings,
+    };
   }
 
   updateSettings(newSettings: any): void {
     this.settings = { ...this.settings, ...newSettings };
+    // Update executor with new settings
+    this.executor.updateSettings(this.settings);
     this.saveConfig();
   }
 
@@ -819,24 +928,66 @@ export class JobScheduler {
   }
 
   createFinancialYear(year: string): string {
+    logger.info(
+      `[createFinancialYear] Called with year: "${year}"`,
+      undefined,
+      { year, type: typeof year }
+    );
+
     if (!this.settings.financialYears) {
+      logger.info(`[createFinancialYear] Initializing financialYears array`);
       this.settings.financialYears = [];
     }
-    if (this.settings.financialYears.includes(year)) {
-      throw new Error(`Financial year ${year} already exists`);
+
+    logger.info(`[createFinancialYear] Current financialYears:`, undefined, {
+      financialYears: this.settings.financialYears,
+    });
+
+    // Validate: year must not be empty or whitespace only
+    if (!year || !year.trim()) {
+      logger.error(`[createFinancialYear] Validation failed - empty year`);
+      throw new Error("Financial year cannot be empty");
     }
-    this.settings.financialYears.push(year);
+    const trimmedYear = year.trim();
+    logger.info(`[createFinancialYear] Trimmed year: "${trimmedYear}"`);
+
+    // Check if already exists (handle both old and new format)
+    const alreadyExists = this.settings.financialYears.some((item: any) => {
+      if (typeof item === "object" && item.year) {
+        return item.year === trimmedYear;
+      }
+      return item === trimmedYear;
+    });
+
+    if (alreadyExists) {
+      logger.error(`[createFinancialYear] Already exists: ${trimmedYear}`);
+      throw new Error(`Financial year ${trimmedYear} already exists`);
+    }
+
+    logger.info(`[createFinancialYear] Adding year to array: "${trimmedYear}"`);
+    this.settings.financialYears.push(trimmedYear);
+    logger.info(`[createFinancialYear] After push:`, undefined, {
+      financialYears: this.settings.financialYears,
+    });
+
     this.saveConfig();
-    return year;
+    logger.info(`[createFinancialYear] Config saved successfully`);
+
+    return trimmedYear;
   }
 
   updateFinancialYear(oldYear: string, newYear: string): string {
     if (!this.settings.financialYears) {
       this.settings.financialYears = [];
     }
+    // Validate: new year must not be empty or whitespace only
+    if (!newYear || !newYear.trim()) {
+      throw new Error("Financial year cannot be empty");
+    }
+    const trimmedNewYear = newYear.trim();
     const index = this.settings.financialYears.findIndex((item: any) => {
-      if (typeof item === "object" && item.name) {
-        return item.name === oldYear;
+      if (typeof item === "object" && item.year) {
+        return item.year === oldYear;
       }
       return item === oldYear;
     });
@@ -845,17 +996,17 @@ export class JobScheduler {
     }
     if (
       this.settings.financialYears.some((item: any) => {
-        if (typeof item === "object" && item.name) {
-          return item.name === newYear;
+        if (typeof item === "object" && item.year) {
+          return item.year === trimmedNewYear;
         }
-        return item === newYear;
+        return item === trimmedNewYear;
       })
     ) {
-      throw new Error(`Financial year ${newYear} already exists`);
+      throw new Error(`Financial year ${trimmedNewYear} already exists`);
     }
-    this.settings.financialYears[index] = newYear;
+    this.settings.financialYears[index] = trimmedNewYear;
     this.saveConfig();
-    return newYear;
+    return trimmedNewYear;
   }
 
   deleteFinancialYear(year: string): void {
@@ -892,21 +1043,61 @@ export class JobScheduler {
   }
 
   createPartner(name: string): string {
+    logger.info(`[createPartner] Called with name: "${name}"`, undefined, {
+      name,
+      type: typeof name,
+    });
+
     if (!this.settings.partners) {
+      logger.info(`[createPartner] Initializing partners array`);
       this.settings.partners = [];
     }
-    if (this.settings.partners.includes(name)) {
-      throw new Error(`Partner ${name} already exists`);
-    }
-    this.settings.partners.push(name);
-    this.saveConfig();
-    return name;
-  }
 
+    logger.info(`[createPartner] Current partners:`, undefined, {
+      partners: this.settings.partners,
+    });
+
+    // Validate: name must not be empty or whitespace only
+    if (!name || !name.trim()) {
+      logger.error(`[createPartner] Validation failed - empty name`);
+      throw new Error("Partner name cannot be empty");
+    }
+    const trimmedName = name.trim();
+    logger.info(`[createPartner] Trimmed name: "${trimmedName}"`);
+
+    // Check if already exists (handle both old and new format)
+    const alreadyExists = this.settings.partners.some((item: any) => {
+      if (typeof item === "object" && item.name) {
+        return item.name === trimmedName;
+      }
+      return item === trimmedName;
+    });
+
+    if (alreadyExists) {
+      logger.error(`[createPartner] Already exists: ${trimmedName}`);
+      throw new Error(`Partner ${trimmedName} already exists`);
+    }
+
+    logger.info(`[createPartner] Adding partner to array: "${trimmedName}"`);
+    this.settings.partners.push(trimmedName);
+    logger.info(`[createPartner] After push:`, undefined, {
+      partners: this.settings.partners,
+    });
+
+    this.saveConfig();
+    logger.info(`[createPartner] Config saved successfully`);
+
+    return trimmedName;
+  }
   updatePartner(oldName: string, newName: string): string {
     if (!this.settings.partners) {
       this.settings.partners = [];
     }
+    // Validate: new name must not be empty or whitespace only
+    if (!newName || !newName.trim()) {
+      throw new Error("Partner name cannot be empty");
+    }
+    const trimmedNewName = newName.trim();
     const index = this.settings.partners.findIndex((item: any) => {
       if (typeof item === "object" && item.name) {
         return item.name === oldName;
@@ -919,16 +1110,16 @@ export class JobScheduler {
     if (
       this.settings.partners.some((item: any) => {
         if (typeof item === "object" && item.name) {
-          return item.name === newName;
+          return item.name === trimmedNewName;
         }
-        return item === newName;
+        return item === trimmedNewName;
       })
     ) {
-      throw new Error(`Partner ${newName} already exists`);
+      throw new Error(`Partner ${trimmedNewName} already exists`);
     }
-    this.settings.partners[index] = newName;
+    this.settings.partners[index] = trimmedNewName;
     this.saveConfig();
-    return newName;
+    return trimmedNewName;
   }
 
   deletePartner(name: string): void {
@@ -1014,5 +1205,669 @@ export class JobScheduler {
       return item !== name;
     });
     this.saveConfig();
+  }
+
+  // Store Management Methods
+  getStores(): any[] {
+    const stores = this.settings.stores || [];
+    return stores;
+  }
+
+  createStore(name: string, shortName: string): any {
+    logger.info(
+      `[createStore] Called with name: "${name}", shortName: "${shortName}"`,
+      undefined,
+      {
+        name,
+        shortName,
+      }
+    );
+
+    if (!this.settings.stores) {
+      logger.info(`[createStore] Initializing stores array`);
+      this.settings.stores = [];
+    }
+
+    // Validate: name and shortName must not be empty
+    if (!name || !name.trim()) {
+      logger.error(`[createStore] Validation failed - empty name`);
+      throw new Error("Store name cannot be empty");
+    }
+    if (!shortName || !shortName.trim()) {
+      logger.error(`[createStore] Validation failed - empty shortName`);
+      throw new Error("Store short name cannot be empty");
+    }
+
+    const trimmedName = name.trim();
+    const trimmedShortName = shortName.trim();
+
+    // Check if already exists (check both name and shortName for uniqueness)
+    const nameExists = this.settings.stores.some(
+      (store: any) => store.name === trimmedName
+    );
+    const shortNameExists = this.settings.stores.some(
+      (store: any) => store.shortName === trimmedShortName
+    );
+
+    if (nameExists) {
+      logger.error(`[createStore] Name already exists: ${trimmedName}`);
+      throw new Error(`Store with name ${trimmedName} already exists`);
+    }
+    if (shortNameExists) {
+      logger.error(
+        `[createStore] Short name already exists: ${trimmedShortName}`
+      );
+      throw new Error(
+        `Store with short name ${trimmedShortName} already exists`
+      );
+    }
+
+    const newStore = {
+      name: trimmedName,
+      shortName: trimmedShortName,
+    };
+
+    logger.info(`[createStore] Adding store to array:`, undefined, {
+      newStore,
+    });
+    this.settings.stores.push(newStore);
+
+    this.saveConfig();
+    logger.info(`[createStore] Config saved successfully`);
+
+    return newStore;
+  }
+
+  updateStore(oldShortName: string, name: string, shortName: string): any {
+    if (!this.settings.stores) {
+      this.settings.stores = [];
+    }
+
+    // Validate
+    if (!name || !name.trim()) {
+      throw new Error("Store name cannot be empty");
+    }
+    if (!shortName || !shortName.trim()) {
+      throw new Error("Store short name cannot be empty");
+    }
+
+    const trimmedName = name.trim();
+    const trimmedShortName = shortName.trim();
+
+    const index = this.settings.stores.findIndex(
+      (store: any) => store.shortName === oldShortName
+    );
+    if (index === -1) {
+      throw new Error(`Store with short name ${oldShortName} not found`);
+    }
+
+    // Check if new values conflict with other stores
+    const nameConflict = this.settings.stores.some(
+      (store: any, i: number) => i !== index && store.name === trimmedName
+    );
+    const shortNameConflict = this.settings.stores.some(
+      (store: any, i: number) =>
+        i !== index && store.shortName === trimmedShortName
+    );
+
+    if (nameConflict) {
+      throw new Error(`Store with name ${trimmedName} already exists`);
+    }
+    if (shortNameConflict) {
+      throw new Error(
+        `Store with short name ${trimmedShortName} already exists`
+      );
+    }
+
+    this.settings.stores[index] = {
+      name: trimmedName,
+      shortName: trimmedShortName,
+    };
+
+    this.saveConfig();
+    return this.settings.stores[index];
+  }
+
+  deleteStore(shortName: string): void {
+    if (!this.settings.stores) {
+      this.settings.stores = [];
+    }
+    this.settings.stores = this.settings.stores.filter(
+      (store: any) => store.shortName !== shortName
+    );
+    this.saveConfig();
+  }
+
+  // System Users CRUD
+  getSystemUsers(): any[] {
+    const users = this.settings.systemUsers || [];
+    return users;
+  }
+
+  createSystemUser(name: string, number: string, group: string): any {
+    logger.info(
+      `[createSystemUser] Called with name: "${name}", number: "${number}", group: "${group}"`,
+      undefined,
+      { name, number, group }
+    );
+
+    if (!this.settings.systemUsers) {
+      logger.info(`[createSystemUser] Initializing systemUsers array`);
+      this.settings.systemUsers = [];
+    }
+
+    // Validate: all fields must not be empty
+    if (!name || !name.trim()) {
+      logger.error(`[createSystemUser] Validation failed - empty name`);
+      throw new Error("User name cannot be empty");
+    }
+    if (!number || !number.trim()) {
+      logger.error(`[createSystemUser] Validation failed - empty number`);
+      throw new Error("User number cannot be empty");
+    }
+    if (!group || !group.trim()) {
+      logger.error(`[createSystemUser] Validation failed - empty group`);
+      throw new Error("User group cannot be empty");
+    }
+
+    const trimmedName = name.trim();
+    const trimmedNumber = number.trim();
+    const trimmedGroup = group.trim();
+
+    // Check if number already exists
+    const numberExists = this.settings.systemUsers.some(
+      (user: any) => user.number === trimmedNumber
+    );
+
+    if (numberExists) {
+      logger.error(
+        `[createSystemUser] Number already exists: ${trimmedNumber}`
+      );
+      throw new Error(`User with number ${trimmedNumber} already exists`);
+    }
+
+    const newUser = {
+      name: trimmedName,
+      number: trimmedNumber,
+      group: trimmedGroup,
+    };
+
+    logger.info(`[createSystemUser] Adding user to array:`, undefined, {
+      newUser,
+    });
+    this.settings.systemUsers.push(newUser);
+
+    this.saveConfig();
+    logger.info(`[createSystemUser] Config saved successfully`);
+
+    return newUser;
+  }
+
+  updateSystemUser(
+    oldNumber: string,
+    name: string,
+    number: string,
+    group: string
+  ): any {
+    if (!this.settings.systemUsers) {
+      this.settings.systemUsers = [];
+    }
+
+    // Validate
+    if (!name || !name.trim()) {
+      throw new Error("User name cannot be empty");
+    }
+    if (!number || !number.trim()) {
+      throw new Error("User number cannot be empty");
+    }
+    if (!group || !group.trim()) {
+      throw new Error("User group cannot be empty");
+    }
+
+    const trimmedName = name.trim();
+    const trimmedNumber = number.trim();
+    const trimmedGroup = group.trim();
+
+    const index = this.settings.systemUsers.findIndex(
+      (user: any) => user.number === oldNumber
+    );
+    if (index === -1) {
+      throw new Error(`User with number ${oldNumber} not found`);
+    }
+
+    // Check if new number conflicts with other users
+    const numberConflict = this.settings.systemUsers.some(
+      (user: any, i: number) => i !== index && user.number === trimmedNumber
+    );
+
+    if (numberConflict) {
+      throw new Error(`User with number ${trimmedNumber} already exists`);
+    }
+
+    this.settings.systemUsers[index] = {
+      name: trimmedName,
+      number: trimmedNumber,
+      group: trimmedGroup,
+    };
+
+    this.saveConfig();
+    return this.settings.systemUsers[index];
+  }
+
+  deleteSystemUser(number: string): void {
+    if (!this.settings.systemUsers) {
+      this.settings.systemUsers = [];
+    }
+    this.settings.systemUsers = this.settings.systemUsers.filter(
+      (user: any) => user.number !== number
+    );
+    this.saveConfig();
+  }
+
+  // WhatsApp Groups CRUD
+  getWhatsAppGroups(): any[] {
+    return this.settings.whatsappGroups || [];
+  }
+
+  createWhatsAppGroup(name: string, groupId: string): any {
+    logger.info(
+      `[createWhatsAppGroup] Called with name: "${name}", groupId: "${groupId}"`,
+      undefined,
+      {
+        name,
+        groupId,
+      }
+    );
+
+    if (!this.settings.whatsappGroups) {
+      logger.info(`[createWhatsAppGroup] Initializing whatsappGroups array`);
+      this.settings.whatsappGroups = [];
+    }
+
+    // Validate: both fields must not be empty
+    if (!name || !name.trim()) {
+      logger.error(`[createWhatsAppGroup] Validation failed - empty name`);
+      throw new Error("WhatsApp group name cannot be empty");
+    }
+    if (!groupId || !groupId.trim()) {
+      logger.error(`[createWhatsAppGroup] Validation failed - empty groupId`);
+      throw new Error("WhatsApp group ID cannot be empty");
+    }
+
+    const trimmedName = name.trim();
+    const trimmedGroupId = groupId.trim();
+
+    // Check if already exists (check both name and groupId for uniqueness)
+    const nameExists = this.settings.whatsappGroups.some(
+      (group: any) => group.name === trimmedName
+    );
+    const groupIdExists = this.settings.whatsappGroups.some(
+      (group: any) => group.groupId === trimmedGroupId
+    );
+
+    if (nameExists) {
+      logger.error(`[createWhatsAppGroup] Name already exists: ${trimmedName}`);
+      throw new Error(`WhatsApp group with name ${trimmedName} already exists`);
+    }
+    if (groupIdExists) {
+      logger.error(
+        `[createWhatsAppGroup] Group ID already exists: ${trimmedGroupId}`
+      );
+      throw new Error(
+        `WhatsApp group with ID ${trimmedGroupId} already exists`
+      );
+    }
+
+    const newGroup = {
+      name: trimmedName,
+      groupId: trimmedGroupId,
+    };
+
+    logger.info(`[createWhatsAppGroup] Adding group to array:`, undefined, {
+      newGroup,
+    });
+    this.settings.whatsappGroups.push(newGroup);
+
+    this.saveConfig();
+    logger.info(`[createWhatsAppGroup] Config saved successfully`);
+
+    return newGroup;
+  }
+
+  updateWhatsAppGroup(oldGroupId: string, name: string, groupId: string): any {
+    if (!this.settings.whatsappGroups) {
+      this.settings.whatsappGroups = [];
+    }
+
+    // Validate
+    if (!name || !name.trim()) {
+      throw new Error("WhatsApp group name cannot be empty");
+    }
+    if (!groupId || !groupId.trim()) {
+      throw new Error("WhatsApp group ID cannot be empty");
+    }
+
+    const trimmedName = name.trim();
+    const trimmedGroupId = groupId.trim();
+
+    const index = this.settings.whatsappGroups.findIndex(
+      (group: any) => group.groupId === oldGroupId
+    );
+    if (index === -1) {
+      throw new Error(`WhatsApp group with ID ${oldGroupId} not found`);
+    }
+
+    // Check if new values conflict with other groups
+    const nameConflict = this.settings.whatsappGroups.some(
+      (group: any, i: number) => i !== index && group.name === trimmedName
+    );
+    const groupIdConflict = this.settings.whatsappGroups.some(
+      (group: any, i: number) => i !== index && group.groupId === trimmedGroupId
+    );
+
+    if (nameConflict) {
+      throw new Error(`WhatsApp group with name ${trimmedName} already exists`);
+    }
+    if (groupIdConflict) {
+      throw new Error(
+        `WhatsApp group with ID ${trimmedGroupId} already exists`
+      );
+    }
+
+    this.settings.whatsappGroups[index] = {
+      name: trimmedName,
+      groupId: trimmedGroupId,
+    };
+
+    this.saveConfig();
+    return this.settings.whatsappGroups[index];
+  }
+
+  deleteWhatsAppGroup(groupId: string): void {
+    if (!this.settings.whatsappGroups) {
+      this.settings.whatsappGroups = [];
+    }
+    this.settings.whatsappGroups = this.settings.whatsappGroups.filter(
+      (group: any) => group.groupId !== groupId
+    );
+    this.saveConfig();
+  }
+
+  // Connection Test with WhatsApp Notification
+  async testAllConnectionsAndNotify(): Promise<{
+    success: boolean;
+    testedCount: number;
+    results: Array<{
+      name: string;
+      store: string;
+      server: string;
+      status: "success" | "failed";
+      message?: string;
+    }>;
+  }> {
+    logger.info("[testAllConnectionsAndNotify] Starting connection test...");
+
+    // Test all connections in PARALLEL for speed
+    const results = await Promise.all(
+      this.connections.map(async (connection) => {
+        try {
+          const connector = new (
+            await import("../connectors/sql")
+          ).SQLConnector();
+          await connector.connect(connection);
+          await connector.disconnect();
+
+          return {
+            name: connection.name,
+            store: connection.store || "-",
+            server: connection.server,
+            status: "success" as const,
+          };
+        } catch (error: any) {
+          return {
+            name: connection.name,
+            store: connection.store || "-",
+            server: connection.server,
+            status: "failed" as const,
+            message: error.message,
+          };
+        }
+      })
+    );
+
+    logger.info(
+      `[testAllConnectionsAndNotify] Tested ${results.length} connections in parallel`
+    );
+
+    // Send WhatsApp notification
+    await this.sendConnectionTestNotification(results);
+
+    return {
+      success: true,
+      testedCount: results.length,
+      results,
+    };
+  }
+
+  private async sendConnectionTestNotification(
+    results: Array<{
+      name: string;
+      store: string;
+      server: string;
+      status: "success" | "failed";
+      message?: string;
+    }>
+  ): Promise<void> {
+    // Check send to configuration
+    const sendTo = this.settings.connectionTestSendTo || "number";
+    const systemUsers = this.settings.systemUsers || [];
+    const whatsappGroups = this.settings.whatsappGroups || [];
+
+    // Validate recipient configuration
+    if (sendTo === "number" && systemUsers.length === 0) {
+      logger.info(
+        "[sendConnectionTestNotification] No system users configured"
+      );
+      return;
+    }
+    if (sendTo === "groups" && whatsappGroups.length === 0) {
+      logger.info(
+        "[sendConnectionTestNotification] No WhatsApp groups configured"
+      );
+      return;
+    }
+
+    // Get status filter settings
+    const showFailed = this.settings.connectionTestShowFailed !== false; // default true
+    const showPassed = this.settings.connectionTestShowPassed === true; // default false
+
+    // Filter results based on status settings
+    let filteredResults = results;
+    if (!showFailed && !showPassed) {
+      // If both are false, show failed only (safety fallback)
+      filteredResults = results.filter((r) => r.status === "failed");
+    } else if (showFailed && !showPassed) {
+      filteredResults = results.filter((r) => r.status === "failed");
+    } else if (!showFailed && showPassed) {
+      filteredResults = results.filter((r) => r.status === "success");
+    }
+    // If both true, show all (no filter needed)
+
+    if (filteredResults.length === 0) {
+      logger.info(
+        "[sendConnectionTestNotification] No results to send based on filters"
+      );
+      return;
+    }
+
+    // Format the message
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: true,
+    });
+
+    let message = "📡 *Connection Test*\n";
+    message += "--------------------------------\n";
+    message += "*Sno*   *Store*   *Server*       *Status*\n";
+
+    filteredResults.forEach((result, index) => {
+      const status = result.status === "success" ? "✅ Pass" : "❌ Fail";
+      message += `${index + 1}       ${result.store}        ${
+        result.server
+      }   ${status}\n`;
+    });
+
+    message += "--------------------------------\n";
+    const passedCount = results.filter((r) => r.status === "success").length;
+    const failedCount = results.filter((r) => r.status === "failed").length;
+    message += `🟢 *Message:* ${passedCount} passed, ${failedCount} failed at ${timeStr}`;
+
+    // Send based on sendTo configuration - to ALL system users or ALL groups
+    if (sendTo === "number") {
+      // Send to all system users
+      logger.info(
+        `[sendConnectionTestNotification] Sending to ${systemUsers.length} system users`
+      );
+      for (const user of systemUsers) {
+        await this.sendWhatsAppMessage(user.number, message, false);
+      }
+    } else if (sendTo === "groups") {
+      // Send to all WhatsApp groups
+      logger.info(
+        `[sendConnectionTestNotification] Sending to ${whatsappGroups.length} WhatsApp groups`
+      );
+      for (const group of whatsappGroups) {
+        await this.sendWhatsAppMessage(group.name, message, true);
+      }
+    }
+
+    logger.info("[sendConnectionTestNotification] WhatsApp notifications sent");
+  }
+
+  private async sendWhatsAppMessage(
+    recipient: string,
+    message: string,
+    isGroup: boolean
+  ): Promise<void> {
+    try {
+      logger.info(
+        `[sendWhatsAppMessage] Sending to ${recipient} (group: ${isGroup})`
+      );
+
+      const axios = (await import("axios")).default;
+
+      // Use WhatsApp API endpoint
+      const apiUrl = "https://systemtest.rajmandirhypermarket.com/api/send";
+
+      // Format according to API documentation
+      const payload = isGroup
+        ? {
+            // Group Message format
+            groupName: recipient, // This is actually groupId from our settings
+            message: message,
+            group: "true",
+          }
+        : {
+            // Individual Message format
+            number: recipient,
+            message: message,
+            group: "false",
+          };
+
+      logger.info(`[sendWhatsAppMessage] Sending payload:`, undefined, payload);
+
+      const result = await axios.post(apiUrl, payload, {
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer cmFqbWFuZGlyLmFkaXR5YTpBZGVlaXNnb29kQDE3MDc",
+        },
+      });
+
+      logger.info(
+        `[sendWhatsAppMessage] API Response:`,
+        undefined,
+        result.data
+      );
+
+      logger.info(
+        `[sendWhatsAppMessage] Successfully sent to ${recipient} (group: ${isGroup})`
+      );
+    } catch (error: any) {
+      logger.error(
+        `[sendWhatsAppMessage] Failed to send to ${recipient}. Error: ${error.message}`,
+        undefined,
+        {
+          error: error.message,
+          response: error.response?.data,
+          status: error.response?.status,
+        }
+      );
+    }
+  }
+
+  // Schedule connection test job
+  startConnectionTestScheduler(): void {
+    this.stopConnectionTestScheduler(); // Stop existing if any
+
+    if (!this.settings.connectionTestEnabled) {
+      logger.info("[ConnectionTest] Scheduler disabled");
+      return;
+    }
+
+    // Use connectionTestCron if available (new format), otherwise fallback to interval
+    let cronExpression: string;
+    if (this.settings.connectionTestCron) {
+      cronExpression = this.settings.connectionTestCron;
+      logger.info(
+        `[ConnectionTest] Starting scheduler with cron: ${cronExpression}`
+      );
+    } else {
+      // Fallback to old interval format
+      const intervalHours = this.settings.connectionTestInterval || 2;
+      cronExpression = `0 */${intervalHours} * * *`; // Every N hours
+      logger.info(
+        `[ConnectionTest] Starting scheduler with interval: ${intervalHours} hours (cron: ${cronExpression})`
+      );
+    }
+
+    const task = cron.schedule(
+      cronExpression,
+      async () => {
+        logger.info("[ConnectionTest] Running scheduled test...");
+        try {
+          await this.testAllConnectionsAndNotify();
+        } catch (error: any) {
+          logger.error(
+            "[ConnectionTest] Scheduled test failed",
+            undefined,
+            error
+          );
+        }
+      },
+      {
+        scheduled: true,
+      }
+    );
+
+    this.tasks.set("connection-test", task);
+    logger.info(
+      `[ConnectionTest] Scheduler started successfully with cron: ${cronExpression}`
+    );
+  }
+
+  stopConnectionTestScheduler(): void {
+    const task = this.tasks.get("connection-test");
+    if (task) {
+      task.stop();
+      this.tasks.delete("connection-test");
+      logger.info("[ConnectionTest] Scheduler stopped");
+    }
+  }
+
+  restartConnectionTestScheduler(): void {
+    logger.info("[ConnectionTest] Restarting scheduler...");
+    this.startConnectionTestScheduler();
   }
 }

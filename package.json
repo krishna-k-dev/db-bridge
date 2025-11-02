@@ -1,6 +1,6 @@
 {
   "name": "sql-bridge-app",
-  "version": "1.2.3",
+  "version": "2.4.0",
   "description": "Desktop app to bridge local SQL Server data to any destination (webhooks, Google Sheets, APIs)",
   "main": "dist/main.js",
   "scripts": {
@@ -13,7 +13,16 @@
     "build-icon": "node build-icon.js",
     "package": "npm run build && npm run build-icon && electron-builder --win --x64",
     "dist": "npm run build && npm run build-icon && electron-builder --win --x64",
-    "dist-win": "electron-builder --windows"
+    "dist-win": "electron-builder --windows",
+    "service:check": "node check-service-ready.js",
+    "service:install": "npm run build && node service-install.js",
+    "service:uninstall": "node service-uninstall.js",
+    "service:start": "net start SQLBridgeApp",
+    "service:stop": "net stop SQLBridgeApp",
+    "service:restart": "npm run service:stop && npm run service:start",
+    "service:status": "sc query SQLBridgeApp",
+    "startup:add": "node setup-startup.js",
+    "startup:remove": "node remove-startup.js"
   },
   "keywords": [
     "sql",
@@ -46,6 +55,7 @@
     "lucide-react": "^0.546.0",
     "mssql": "^12.0.0",
     "node-cron": "^3.0.3",
+    "node-windows": "^1.0.0-beta.8",
     "tailwind-merge": "^3.3.1",
     "tailwindcss-animate": "^1.0.7",
     "xlsx": "^0.18.5"
@@ -74,6 +84,10 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
       }
     ],
     "win": {
