@@ -8,6 +8,8 @@ export interface SQLConnection {
   user?: string;
   password?: string;
   port?: number;
+  vpnServer?: string; // VPN server fallback
+  vpnPort?: number; // VPN port
   financialYear?: string;
   group?: "self" | "partner";
   partner?: string;
@@ -20,6 +22,7 @@ export interface SQLConnection {
   createdAt?: Date;
   lastTested?: Date;
   testStatus?: "connected" | "failed" | "not-started";
+  activeServerType?: "static" | "vpn"; // Track which server is currently connected
 }
 
 export interface Job {

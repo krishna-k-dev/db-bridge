@@ -503,16 +503,30 @@ export class JobExecutor {
 
   async testConnection(
     connection: SQLConnection
-  ): Promise<{ success: boolean; message: string }> {
+  ): Promise<{
+    success: boolean;
+    message: string;
+    activeServerType?: "static" | "vpn";
+  }> {
     const connector = new SQLConnector();
 
     try {
       await connector.connect(connection);
       await connector.executeQuery("SELECT 1 AS test");
 
+      // Get which server connected from the connector's internal config
+      const activeServerType =
+        (connector as any).config?.activeServerType || "static";
+
+      const serverInfo =
+        activeServerType === "vpn"
+          ? `${connection.vpnServer}/${connection.database} (VPN fallback)`
+          : `${connection.server}/${connection.database}`;
+
       return {
         success: true,
-        message: `Connected successfully to ${connection.server}/${connection.database}`,
+        message: `Connected successfully to ${serverInfo}`,
+        activeServerType: activeServerType,
       };
     } catch (error: any) {
       return {

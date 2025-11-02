@@ -38,6 +38,8 @@ interface Connection {
   user?: string
   password?: string
   port?: number
+  vpnServer?: string
+  vpnPort?: number
   financialYear?: string
   group?: "self" | "partner"
   partner?: string
@@ -50,6 +52,7 @@ interface Connection {
   createdAt?: Date
   lastTested?: Date
   testStatus?: "connected" | "failed" | "not-tested"
+  activeServerType?: "static" | "vpn"
 }
 
 interface ConnectionsPageProps {
@@ -64,6 +67,8 @@ const headerMapping: { [key: string]: string } = {
   'user': 'user',
   'password': 'password',
   'port': 'port',
+  'vpnserver': 'vpnServer',
+  'vpnport': 'vpnPort',
   'financialyear': 'financialYear',
   'group': 'group',
   'partner': 'partner'
@@ -434,9 +439,9 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
   }
 
   const handleDownloadTemplate = () => {
-    const csvContent = `name,server,database,user,password,financialYear,group,partner,storeName,storeShortName
-My Connection,localhost,MyDatabase,sa,,2024-25,self,,Mumbai Store,MUM
-Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partner1,Delhi Store,DEL`
+    const csvContent = `name,server,database,user,password,vpnServer,vpnPort,financialYear,group,partner,storeName,storeShortName
+My Connection,localhost,MyDatabase,sa,,10.0.0.1,1433,2024-25,self,,Mumbai Store,MUM
+Partner Connection,partner-server,PartnerDB,user,password,vpn.partner.com,1433,2024-25,partner,partner1,Delhi Store,DEL`
 
     const blob = new Blob([csvContent], { type: 'text/csv' })
     const url = window.URL.createObjectURL(blob)
@@ -463,10 +468,13 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
       user: conn.user || '',
       password: includePasswords ? (conn.password || '') : '',
       port: conn.port || '',
+      vpnServer: (conn as any).vpnServer || '',
+      vpnPort: (conn as any).vpnPort || '',
       financialYear: conn.financialYear || '',
       group: conn.group || 'self',
       partner: conn.partner || '',
       store: conn.store || '',
+      activeServerType: (conn as any).activeServerType || '',
       testStatus: conn.testStatus || 'not-tested',
       lastTested: conn.lastTested ? new Date(conn.lastTested).toLocaleString() : '',
       createdAt: conn.createdAt ? new Date(conn.createdAt).toLocaleDateString() : ''
@@ -682,10 +690,16 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
                   Name
                 </th>
                 <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Server
+                  Static Server
+                </th>
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                  VPN Server
                 </th>
                 <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Database
+                </th>
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                  Active
                 </th>
                 <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Financial Year
@@ -713,7 +727,7 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
             <tbody className="divide-y divide-gray-200 text-xs">
               {filteredConnections.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={13} className="px-6 py-12 text-center text-gray-500">
                     No connections found. Click "Add Connection" to get started.
                   </td>
                 </tr>
@@ -738,10 +752,26 @@ Partner Connection,partner-server,PartnerDB,user,password,2024-25,partner,partne
                       {connection.name}
                     </td>
                     <td className="px-2 py-1 whitespace-nowrap text-gray-700">
-                      {connection.server}
+                      {connection.server}{connection.port ? `:${connection.port}` : ''}
+                    </td>
+                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
+                      {(connection as any).vpnServer ? `${(connection as any).vpnServer}${(connection as any).vpnPort ? `:${(connection as any).vpnPort}` : ''}` : '-'}
                     </td>
                     <td className="px-2 py-1 whitespace-nowrap text-gray-700">
                       {connection.database}
+                    </td>
+                    <td className="px-2 py-1 whitespace-nowrap">
+                      {(connection as any).activeServerType ? (
+                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                          (connection as any).activeServerType === 'static'
+                            ? 'bg-blue-100 text-blue-800'
+                            : 'bg-orange-100 text-orange-800'
+                        }`}>
+                          {(connection as any).activeServerType === 'static' ? 'Static' : 'VPN'}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">-</span>
+                      )}
                     </td>
                     <td className="px-2 py-1 whitespace-nowrap text-gray-700">
                       {connection.financialYear || 'N/A'}

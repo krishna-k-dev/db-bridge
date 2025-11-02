@@ -758,9 +758,12 @@ export class JobScheduler {
 
     const result = await this.executor.testConnection(connection);
 
-    // Update connection test status and timestamp
+    // Update connection test status, timestamp, and which server connected
     connection.lastTested = new Date();
     connection.testStatus = result.success ? "connected" : "failed";
+    if (result.success && result.activeServerType) {
+      connection.activeServerType = result.activeServerType;
+    }
 
     // Save the updated connection
     this.saveConfig();
@@ -831,9 +834,12 @@ export class JobScheduler {
         result = { success: false, message: err?.message || String(err) };
       }
 
-      // Update connection status & timestamp
+      // Update connection status, timestamp, and active server type
       connection.lastTested = new Date();
       connection.testStatus = result.success ? "connected" : "failed";
+      if (result.success && result.activeServerType) {
+        connection.activeServerType = result.activeServerType;
+      }
 
       return {
         connectionId,
@@ -1607,7 +1613,7 @@ export class JobScheduler {
   }> {
     logger.info("[testAllConnectionsAndNotify] Starting connection test...");
 
-    // Test all connections in PARALLEL for speed
+    // Test all connections in PARALLEL for speed (with fallback logic built-in)
     const results = await Promise.all(
       this.connections.map(async (connection) => {
         try {
@@ -1615,15 +1621,34 @@ export class JobScheduler {
             await import("../connectors/sql")
           ).SQLConnector();
           await connector.connect(connection);
+
+          // Get which server connected
+          const activeServerType =
+            (connector as any).config?.activeServerType || "static";
+          const serverInfo =
+            activeServerType === "vpn"
+              ? `${connection.vpnServer} (VPN)`
+              : connection.server;
+
           await connector.disconnect();
+
+          // Update connection with active server type
+          connection.activeServerType = activeServerType;
+          connection.lastTested = new Date();
+          connection.testStatus = "connected";
 
           return {
             name: connection.name,
             store: connection.store || "-",
-            server: connection.server,
+            server: serverInfo,
             status: "success" as const,
           };
         } catch (error: any) {
+          // Both static and VPN failed
+          connection.lastTested = new Date();
+          connection.testStatus = "failed";
+          connection.activeServerType = undefined;
+
           return {
             name: connection.name,
             store: connection.store || "-",

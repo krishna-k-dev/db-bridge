@@ -47,8 +47,9 @@ export function CreateConnectionForm({ onConnectionCreated }: CreateConnectionFo
 
     const formData = new FormData(e.currentTarget)
     const serverValue = formData.get('server') as string
+    const vpnServerValue = formData.get('vpn-server') as string
     
-    // Parse server and port from input (e.g., "localhost:1433" or "192.168.1.1:8000")
+    // Parse static server and port from input (e.g., "localhost:1433" or "192.168.1.1:8000")
     let server = serverValue
     let port: number | undefined = undefined
     
@@ -60,12 +61,37 @@ export function CreateConnectionForm({ onConnectionCreated }: CreateConnectionFo
         port = Number(portStr)
       }
     }
+
+    // Parse VPN server and port
+    let vpnServer: string | undefined = undefined
+    let vpnPort: number | undefined = undefined
+    
+    if (vpnServerValue) {
+      if (vpnServerValue.includes(':')) {
+        const parts = vpnServerValue.split(':')
+        vpnServer = parts[0]
+        const portStr = parts[1]
+        if (portStr && !isNaN(Number(portStr))) {
+          vpnPort = Number(portStr)
+        }
+      } else {
+        vpnServer = vpnServerValue
+      }
+
+      // If VPN port field is filled, use it (overrides port from vpn-server)
+      const vpnPortField = formData.get('vpn-port')
+      if (vpnPortField && vpnPortField !== '') {
+        vpnPort = Number(vpnPortField)
+      }
+    }
     
     const connectionData = {
       id: `conn_${Date.now()}`,
       name: formData.get('name'),
       server: server,
       port: port,
+      vpnServer: vpnServer,
+      vpnPort: vpnPort,
       database: formData.get('database'),
       user: formData.get('username') || undefined,
       password: formData.get('password') || undefined,
@@ -115,7 +141,7 @@ export function CreateConnectionForm({ onConnectionCreated }: CreateConnectionFo
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="server">Server *</Label>
+                  <Label htmlFor="server">Static Server *</Label>
                   <Input
                     id="server"
                     name="server"
@@ -123,7 +149,7 @@ export function CreateConnectionForm({ onConnectionCreated }: CreateConnectionFo
                     required
                   />
                   <p className="text-sm text-gray-500">
-                    Server name or IP with optional port (default port is 1433)
+                    Primary server with optional port (default port is 1433)
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -133,6 +159,29 @@ export function CreateConnectionForm({ onConnectionCreated }: CreateConnectionFo
                     name="database"
                     placeholder="MyDatabase"
                     required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="vpn-server">VPN Server (Fallback)</Label>
+                  <Input
+                    id="vpn-server"
+                    name="vpn-server"
+                    placeholder="vpn.example.com or 10.0.0.1:1433"
+                  />
+                  <p className="text-sm text-gray-500">
+                    VPN server used if static server fails
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="vpn-port">VPN Port</Label>
+                  <Input
+                    id="vpn-port"
+                    name="vpn-port"
+                    type="number"
+                    placeholder="1433"
                   />
                 </div>
               </div>

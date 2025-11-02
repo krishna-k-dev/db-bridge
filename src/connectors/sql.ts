@@ -37,13 +37,19 @@ export class SQLConnector {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
-    try {
-      SQLConnector.activeConnections++;
+    SQLConnector.activeConnections++;
+    const manager = ConnectionPoolManager.getInstance();
+    let lastError: Error | null = null;
 
-      // Use shared pool manager
-      const manager = ConnectionPoolManager.getInstance();
+    // Try static server first
+    try {
+      logger.info("Attempting connection to static server", undefined, {
+        server: config.server,
+        database: config.database,
+      });
+
       this.pool = await manager.acquire(config);
-      this.config = config;
+      this.config = { ...config, activeServerType: "static" };
 
       // Increase max listeners to prevent warning during parallel tests
       if (
@@ -53,23 +59,70 @@ export class SQLConnector {
         (this.pool as any).setMaxListeners(200);
       }
 
-      logger.info("Connected to SQL Server", undefined, {
+      logger.info("Connected to SQL Server via static server", undefined, {
         server: config.server,
         database: config.database,
       });
+      return;
     } catch (error) {
-      // Release reserved slot on error
-      SQLConnector.decrementActiveConnections();
-
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
-      logger.error(
-        `Failed to connect to SQL Server (${config.server}/${config.database}): ${errorMessage}`,
+      lastError = error instanceof Error ? error : new Error(String(error));
+      logger.warn(
+        `Static server connection failed (${config.server}/${config.database}): ${lastError.message}`,
         undefined,
         error
       );
-      throw error;
     }
+
+    // Try VPN server if static failed and VPN is configured
+    if (config.vpnServer) {
+      try {
+        logger.info("Attempting connection to VPN server", undefined, {
+          vpnServer: config.vpnServer,
+          database: config.database,
+        });
+
+        const vpnConfig: SQLConnection = {
+          ...config,
+          server: config.vpnServer,
+          port: config.vpnPort || config.port,
+        };
+
+        this.pool = await manager.acquire(vpnConfig);
+        this.config = { ...config, activeServerType: "vpn" };
+
+        // Increase max listeners
+        if (
+          this.pool &&
+          typeof (this.pool as any).setMaxListeners === "function"
+        ) {
+          (this.pool as any).setMaxListeners(200);
+        }
+
+        logger.info("Connected to SQL Server via VPN server", undefined, {
+          vpnServer: config.vpnServer,
+          database: config.database,
+        });
+        return;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        logger.error(
+          `VPN server connection also failed (${config.vpnServer}/${config.database}): ${lastError.message}`,
+          undefined,
+          error
+        );
+      }
+    }
+
+    // Both failed - release reserved slot and throw
+    SQLConnector.decrementActiveConnections();
+
+    const errorMessage = lastError?.message || "Unknown connection error";
+    logger.error(
+      `Failed to connect to SQL Server via both static and VPN servers (${config.server}/${config.database}): ${errorMessage}`,
+      undefined,
+      lastError
+    );
+    throw lastError || new Error("Connection failed");
   }
 
   async executeQuery(
