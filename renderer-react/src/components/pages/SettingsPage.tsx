@@ -77,6 +77,7 @@ const SettingsPage = () => {
       enableProgressStreaming: appSettings.enableProgressStreaming !== false,
       logVerbosity: appSettings.logVerbosity ?? 'info',
       sheetNameFormat: appSettings.sheetNameFormat ?? 'databaseName',
+      multiQueryUseQueryNameOnly: appSettings.multiQueryUseQueryNameOnly ?? false,
       connectionTestEnabled: appSettings.connectionTestEnabled ?? false,
       connectionTestInterval: appSettings.connectionTestInterval ?? 2,
       connectionTestSendTo: appSettings.connectionTestSendTo ?? 'number',
@@ -428,6 +429,7 @@ const SettingsPage = () => {
   const jobQueueMaxConcurrent = parseInt(formData.get('jobQueueMaxConcurrent') as string) || formSettings.jobQueueMaxConcurrent || 10
   const enableProgressStreaming = formData.get('enableProgressStreaming') === 'on' || !!formSettings.enableProgressStreaming
   const sheetNameFormat = formData.get('sheetNameFormat') as string || formSettings.sheetNameFormat || 'databaseName'
+  const multiQueryUseQueryNameOnly = formData.get('multiQueryUseQueryNameOnly') === 'on'
   const logVerbosity = formData.get('logVerbosity') as string || formSettings.logVerbosity || 'info'
   
   // Connection Test Settings
@@ -462,6 +464,7 @@ const SettingsPage = () => {
         jobQueueMaxConcurrent,
         enableProgressStreaming,
         sheetNameFormat,
+        multiQueryUseQueryNameOnly,
         logVerbosity,
         connectionTestEnabled,
         connectionTestInterval,
@@ -758,22 +761,41 @@ const SettingsPage = () => {
             {/* Excel/Sheets Configuration */}
             <div className="border-b pb-4">
               <h4 className="text-md font-medium text-gray-800 mb-3">Excel & Google Sheets</h4>
-              <div className="space-y-2">
-                <Label htmlFor="sheetNameFormat">Sheet Name Format</Label>
-                <select
-                  id="sheetNameFormat"
-                  name="sheetNameFormat"
-                  value={formSettings.sheetNameFormat || 'databaseName'}
-                  onChange={(e) => setFormSettings({...formSettings, sheetNameFormat: e.target.value})}
-                  className="w-full md:w-64 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
-                >
-                  <option value="databaseName">Database Name (Default)</option>
-                  <option value="connectionName">Connection Name</option>
-                  <option value="storeName">Store Name</option>
-                </select>
-                <p className="text-sm text-gray-600">
-                  Choose how sheet names are generated in Excel and Google Sheets exports.
-                </p>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="sheetNameFormat">Sheet Name Format</Label>
+                  <select
+                    id="sheetNameFormat"
+                    name="sheetNameFormat"
+                    value={formSettings.sheetNameFormat || 'databaseName'}
+                    onChange={(e) => setFormSettings({...formSettings, sheetNameFormat: e.target.value})}
+                    className="w-full md:w-64 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                  >
+                    <option value="databaseName">Database Name (Default)</option>
+                    <option value="connectionName">Connection Name</option>
+                    <option value="storeName">Store Name</option>
+                  </select>
+                  <p className="text-sm text-gray-600">
+                    Choose how sheet names are generated in Excel and Google Sheets exports.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="flex items-center space-x-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      id="multiQueryUseQueryNameOnly"
+                      name="multiQueryUseQueryNameOnly"
+                      checked={formSettings.multiQueryUseQueryNameOnly || false}
+                      onChange={(e) => setFormSettings({...formSettings, multiQueryUseQueryNameOnly: e.target.checked})}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <span className="text-sm font-medium text-gray-700">Multi-Query: Use Query Name Only for Sheets</span>
+                  </label>
+                  <p className="text-sm text-gray-600">
+                    When enabled, multi-query jobs will create sheets with only the query name (e.g., "Sales Report") instead of "ConnectionName - QueryName".
+                  </p>
+                </div>
               </div>
             </div>
 

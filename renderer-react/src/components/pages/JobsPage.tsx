@@ -285,6 +285,9 @@ const JobsPage = ({ onCountChange }: JobsPageProps) => {
                   Name
                 </th>
                 <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
+                  Type
+                </th>
+                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
                   Group
                 </th>
                 <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
@@ -307,7 +310,7 @@ const JobsPage = ({ onCountChange }: JobsPageProps) => {
             <tbody className="divide-y divide-gray-200 text-xs">
               {filteredJobs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-2 py-12 text-center text-gray-500">
+                  <td colSpan={8} className="px-2 py-12 text-center text-gray-500">
                     No jobs found. Click "Create Job" to get started.
                   </td>
                 </tr>
@@ -316,6 +319,17 @@ const JobsPage = ({ onCountChange }: JobsPageProps) => {
                   <tr key={job.id ?? `job-${idx}-${(job.name || '').replace(/\s+/g, '-')}` } className="hover:bg-gray-50">
                     <td className="px-2 py-1 whitespace-nowrap font-medium text-gray-900">
                       {job.name}
+                    </td>
+                    <td className="px-2 py-1 whitespace-nowrap">
+                      {(job as any).queries && (job as any).queries.length > 0 ? (
+                        <span className="px-2 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-800">
+                          Multi-Query ({(job as any).queries.length})
+                        </span>
+                      ) : (
+                        <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
+                          Single
+                        </span>
+                      )}
                     </td>
                     <td className="px-2 py-1 whitespace-nowrap text-gray-700">
                       {job.group || '-'}
