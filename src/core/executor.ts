@@ -78,6 +78,7 @@ export class JobExecutor {
     const dataWithMeta: Array<{
       connection: SQLConnection;
       data: any[];
+      queryResults?: { [queryName: string]: any[] }; // Multi-query results
       connectionFailedMessage?: string;
     }> = [];
 
@@ -102,12 +103,42 @@ export class JobExecutor {
           step: "Executing query",
         });
 
-        const data = await connector.executeQuery(job.query);
+        // Support multi-query: if job.queries exists, execute all; otherwise use legacy job.query
+        let data: any[] = [];
+        let queryResults: { [queryName: string]: any[] } = {};
 
-        logger.info(
-          `Query on ${connection.name} returned ${data.length} rows`,
-          job.id
-        );
+        if (job.queries && job.queries.length > 0) {
+          // Multi-query mode
+          logger.info(
+            `Executing ${job.queries.length} queries on ${connection.name}`,
+            job.id
+          );
+
+          for (const queryItem of job.queries) {
+            logger.info(
+              `Executing query "${queryItem.name}" on ${connection.name}`,
+              job.id
+            );
+            const queryData = await connector.executeQuery(queryItem.query);
+            queryResults[queryItem.name] = queryData;
+
+            logger.info(
+              `Query "${queryItem.name}" on ${connection.name} returned ${queryData.length} rows`,
+              job.id
+            );
+          }
+
+          // For backward compatibility, combine all results for trigger check
+          data = Object.values(queryResults).flat();
+        } else {
+          // Legacy single query mode
+          data = await connector.executeQuery(job.query);
+
+          logger.info(
+            `Query on ${connection.name} returned ${data.length} rows`,
+            job.id
+          );
+        }
 
         this.progressStream.updateConnectionProgress(job.id, connection.id, {
           step: "Query completed",
@@ -115,7 +146,7 @@ export class JobExecutor {
           totalRows: data.length,
         });
 
-        dataWithMeta.push({ connection, data });
+        dataWithMeta.push({ connection, data, queryResults });
 
         // HYBRID BATCHING: Add data to buffer (will auto-flush every 5s or at 100 rows)
         if (hasStreamingDestinations && data.length > 0) {
@@ -501,9 +532,7 @@ export class JobExecutor {
    */
   // private async streamDataToDestinations() {}
 
-  async testConnection(
-    connection: SQLConnection
-  ): Promise<{
+  async testConnection(connection: SQLConnection): Promise<{
     success: boolean;
     message: string;
     activeServerType?: "static" | "vpn";

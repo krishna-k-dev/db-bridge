@@ -19,6 +19,7 @@ export class ExcelAdapter implements DestinationAdapter {
     dataWithMeta: Array<{
       connection: any;
       data: any[];
+      queryResults?: { [queryName: string]: any[] }; // Multi-query support
       connectionFailedMessage?: string;
     }>,
     config: ExcelDestination,
@@ -76,14 +77,15 @@ export class ExcelAdapter implements DestinationAdapter {
         workbook = XLSX.utils.book_new();
       }
 
-      // Create a sheet for each connection
+      // Create sheets for each connection and query
       let totalRows = 0;
       for (const {
         connection,
         data,
+        queryResults,
         connectionFailedMessage,
       } of dataWithMeta) {
-        // Determine sheet name based on settings
+        // Determine base sheet name from connection
         const format = meta.settings?.sheetNameFormat || "databaseName";
         logger.info(
           `[Excel Adapter] Sheet name format: ${format}`,
@@ -97,60 +99,116 @@ export class ExcelAdapter implements DestinationAdapter {
             connectionStore: connection.store,
           }
         );
-        let sheetName = this.getSheetName(connection, format);
+        let baseSheetName = this.getSheetName(connection, format);
         logger.info(
-          `[Excel Adapter] Generated sheet name: ${sheetName}`,
+          `[Excel Adapter] Generated base sheet name: ${baseSheetName}`,
           meta.jobId
         );
-        sheetName = this.sanitizeSheetName(sheetName);
 
-        let sheetData: any[];
+        // Handle multi-query: create separate sheets for each query
+        if (queryResults && Object.keys(queryResults).length > 0) {
+          logger.info(
+            `[Excel Adapter] Multi-query mode: ${
+              Object.keys(queryResults).length
+            } queries`,
+            meta.jobId
+          );
 
-        if (connectionFailedMessage) {
-          // For failed connections, create a row with error message
-          sheetData = [
-            {
-              connectionName: connection.name,
-              connectionFailedMessage: connectionFailedMessage,
-              data: "[]",
-            },
-          ];
-        } else {
-          sheetData = data;
-        }
+          for (const [queryName, queryData] of Object.entries(queryResults)) {
+            // Sheet name format: "ConnectionName - QueryName"
+            let sheetName = `${baseSheetName} - ${queryName}`;
+            sheetName = this.sanitizeSheetName(sheetName);
 
-        // In append mode, merge with existing sheet if it exists
-        if (mode === "append" && workbook.SheetNames.includes(sheetName)) {
-          const existingSheet = workbook.Sheets[sheetName];
-          const existingData = XLSX.utils.sheet_to_json(existingSheet);
-          const mergedData = [...existingData, ...sheetData];
-
-          // Remove old sheet and add merged one
-          delete workbook.Sheets[sheetName];
-          const newIndex = workbook.SheetNames.indexOf(sheetName);
-          if (newIndex > -1) {
-            workbook.SheetNames.splice(newIndex, 1);
-          }
-
-          const worksheet = XLSX.utils.json_to_sheet(mergedData);
-          XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-        } else {
-          // Create new sheet (replace mode or sheet doesn't exist)
-          const worksheet = XLSX.utils.json_to_sheet(sheetData);
-
-          // If sheet already exists in workbook, remove it first
-          if (workbook.SheetNames.includes(sheetName)) {
-            delete workbook.Sheets[sheetName];
-            const idx = workbook.SheetNames.indexOf(sheetName);
-            if (idx > -1) {
-              workbook.SheetNames.splice(idx, 1);
+            let sheetData: any[];
+            if (connectionFailedMessage) {
+              sheetData = [
+                {
+                  connectionName: connection.name,
+                  queryName: queryName,
+                  connectionFailedMessage: connectionFailedMessage,
+                  data: "[]",
+                },
+              ];
+            } else {
+              sheetData = queryData as any[];
             }
+
+            // In append mode, merge with existing sheet if it exists
+            if (mode === "append" && workbook.SheetNames.includes(sheetName)) {
+              const existingSheet = workbook.Sheets[sheetName];
+              const existingData = XLSX.utils.sheet_to_json(existingSheet);
+              const mergedData = [...existingData, ...sheetData];
+
+              delete workbook.Sheets[sheetName];
+              const newIndex = workbook.SheetNames.indexOf(sheetName);
+              if (newIndex > -1) {
+                workbook.SheetNames.splice(newIndex, 1);
+              }
+
+              const worksheet = XLSX.utils.json_to_sheet(mergedData);
+              XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+            } else {
+              const worksheet = XLSX.utils.json_to_sheet(sheetData);
+
+              if (workbook.SheetNames.includes(sheetName)) {
+                delete workbook.Sheets[sheetName];
+                const idx = workbook.SheetNames.indexOf(sheetName);
+                if (idx > -1) {
+                  workbook.SheetNames.splice(idx, 1);
+                }
+              }
+
+              XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+            }
+
+            totalRows += sheetData.length;
+          }
+        } else {
+          // Legacy single query mode
+          let sheetName = this.sanitizeSheetName(baseSheetName);
+
+          let sheetData: any[];
+          if (connectionFailedMessage) {
+            sheetData = [
+              {
+                connectionName: connection.name,
+                connectionFailedMessage: connectionFailedMessage,
+                data: "[]",
+              },
+            ];
+          } else {
+            sheetData = data;
           }
 
-          XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-        }
+          if (mode === "append" && workbook.SheetNames.includes(sheetName)) {
+            const existingSheet = workbook.Sheets[sheetName];
+            const existingData = XLSX.utils.sheet_to_json(existingSheet);
+            const mergedData = [...existingData, ...sheetData];
 
-        totalRows += sheetData.length;
+            delete workbook.Sheets[sheetName];
+            const newIndex = workbook.SheetNames.indexOf(sheetName);
+            if (newIndex > -1) {
+              workbook.SheetNames.splice(newIndex, 1);
+            }
+
+            const worksheet = XLSX.utils.json_to_sheet(mergedData);
+            XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+          } else {
+            const worksheet = XLSX.utils.json_to_sheet(sheetData);
+
+            if (workbook.SheetNames.includes(sheetName)) {
+              delete workbook.Sheets[sheetName];
+              const idx = workbook.SheetNames.indexOf(sheetName);
+              if (idx > -1) {
+                workbook.SheetNames.splice(idx, 1);
+              }
+            }
+
+            XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+          }
+
+          totalRows += sheetData.length;
+        }
       }
 
       // Write file

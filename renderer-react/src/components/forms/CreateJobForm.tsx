@@ -351,6 +351,12 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
   const [name, setName] = useState(() => job ? job.name || "" : "")
   const [group, setGroup] = useState(() => job ? job.group || "" : "")
   const [query, setQuery] = useState(() => job ? job.query || "" : "")
+  const [queries, setQueries] = useState<Array<{id: string, name: string, query: string}>>(() => 
+    job && job.queries ? job.queries : []
+  )
+  const [useMultiQuery, setUseMultiQuery] = useState(() => 
+    job && job.queries && job.queries.length > 0 ? true : false
+  )
   const [trigger, setTrigger] = useState(() => job ? job.trigger || "always" : "always")
   // destinations handled elsewhere in the original UI — keep placeholder here
 
@@ -443,6 +449,25 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
     }
   }, [selectedConnections, filteredConnections])
 
+  const addQuery = () => {
+    const newQuery = {
+      id: `query_${Date.now()}`,
+      name: '',
+      query: ''
+    }
+    setQueries([...queries, newQuery])
+  }
+
+  const updateQuery = (index: number, field: 'name' | 'query', value: string) => {
+    const newQueries = [...queries]
+    newQueries[index][field] = value
+    setQueries(newQueries)
+  }
+
+  const removeQuery = (index: number) => {
+    setQueries(queries.filter((_, i) => i !== index))
+  }
+
   const addDestination = () => {
     setDestinations([...destinations, { type: "" }])
   }
@@ -496,19 +521,55 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
       }
     }
 
+    // Validate queries if multi-query mode
+    if (useMultiQuery) {
+      if (queries.length === 0) {
+        toast.error("Please add at least one query in multi-query mode!")
+        setIsLoading(false)
+        return
+      }
+      for (const q of queries) {
+        if (!q.name || !q.name.trim()) {
+          toast.error("All queries must have a name!")
+          setIsLoading(false)
+          return
+        }
+        if (!q.query || !q.query.trim()) {
+          toast.error("All queries must have SQL!")
+          setIsLoading(false)
+          return
+        }
+      }
+    } else {
+      // Single query mode validation
+      if (!query || !query.trim()) {
+        toast.error("Query cannot be empty!")
+        setIsLoading(false)
+        return
+      }
+    }
+
     // Generate schedule cron from config
     const scheduleCron = isManualSchedule ? "manual" : generateCron(scheduleConfig);
     
-    const jobData = {
+    const jobData: any = {
       id: job?.id || `job_${Date.now()}`,
       name: name,
       group: group || undefined,
-      query: query,
       schedule: scheduleCron,
       trigger: trigger,
       connectionIds: selectedConnections,
       destinations: destinations,
       createdAt: job?.createdAt || new Date(),
+    }
+
+    // Add query or queries based on mode
+    if (useMultiQuery) {
+      jobData.queries = queries
+      jobData.query = '' // Clear legacy query field
+    } else {
+      jobData.query = query
+      jobData.queries = [] // Clear queries array
     }
 
     try {
@@ -685,12 +746,83 @@ export function CreateJobForm({ job, onJobCreated, onJobUpdated }: CreateJobForm
 
                 {/* SQL Query */}
                 <div className="space-y-4">
-                  <h4 className="text-lg font-semibold">SQL Query</h4>
-                  <div className="space-y-2">
-                    <Label htmlFor="query">Query *</Label>
-                    <Textarea id="query" name="query" rows={5} placeholder="SELECT * FROM TableName" value={query} onChange={(e) => setQuery(e.target.value)} required />
-                    <p className="text-sm text-gray-500">💡 Tip: Use WHERE clauses to filter data efficiently</p>
+                  <div className="flex justify-between items-center">
+                    <h4 className="text-lg font-semibold">SQL Queries</h4>
+                    <label className="flex items-center space-x-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={useMultiQuery}
+                        onChange={(e) => setUseMultiQuery(e.target.checked)}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <span className="text-sm font-medium">Multi-Query Mode</span>
+                    </label>
                   </div>
+
+                  {!useMultiQuery ? (
+                    <div className="space-y-2">
+                      <Label htmlFor="query">Query *</Label>
+                      <Textarea 
+                        id="query" 
+                        name="query" 
+                        rows={5} 
+                        placeholder="SELECT * FROM TableName" 
+                        value={query} 
+                        onChange={(e) => setQuery(e.target.value)} 
+                      />
+                      <p className="text-sm text-gray-500">💡 Tip: Use WHERE clauses to filter data efficiently</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      <p className="text-sm text-gray-600">
+                        Add multiple queries. Each query will create a separate sheet in Excel/Google Sheets.
+                      </p>
+                      
+                      {queries.map((q, index) => (
+                        <div key={q.id} className="border rounded-lg p-4 bg-gray-50 space-y-3">
+                          <div className="flex justify-between items-start">
+                            <h5 className="font-medium text-sm">Query {index + 1}</h5>
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => removeQuery(index)}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label>Query Name *</Label>
+                            <Input
+                              placeholder="e.g., Sales Report, Inventory Check"
+                              value={q.name}
+                              onChange={(e) => updateQuery(index, 'name', e.target.value)}
+                            />
+                          </div>
+                          
+                          <div className="space-y-2">
+                            <Label>SQL Query *</Label>
+                            <Textarea
+                              rows={4}
+                              placeholder="SELECT * FROM TableName"
+                              value={q.query}
+                              onChange={(e) => updateQuery(index, 'query', e.target.value)}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={addQuery}
+                        className="w-full"
+                      >
+                        + Add Query
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Schedule & Trigger */}

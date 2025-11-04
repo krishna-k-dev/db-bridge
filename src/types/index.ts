@@ -25,13 +25,20 @@ export interface SQLConnection {
   activeServerType?: "static" | "vpn"; // Track which server is currently connected
 }
 
+export interface QueryItem {
+  id: string;
+  name: string;
+  query: string;
+}
+
 export interface Job {
   id: string;
   name: string;
   enabled: boolean;
   connectionId?: string; // For backward compatibility
   connectionIds?: string[]; // New field for multiple connections
-  query: string;
+  query: string; // Legacy single query - kept for backward compatibility
+  queries?: QueryItem[]; // New: Multiple queries with names
   schedule: string; // cron expression or interval in minutes (e.g., "*/2 * * * *" or "2m")
   recurrenceType?: "once" | "daily" | "every-n-days"; // New field for recurrence type
   everyNDays?: number; // For every-n-days recurrence
