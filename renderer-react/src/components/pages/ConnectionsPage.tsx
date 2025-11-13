@@ -165,16 +165,22 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
 
   const handleDeleteConnection = async () => {
     if (!deleteConnectionId) return
-    const result = ipcRenderer.invoke('delete-connection', deleteConnectionId)
-    toast.promise(result, {
-      loading: 'Deleting connection...',
-      success: 'Connection deleted successfully!',
-      error: (error) => `Failed to delete connection: ${error?.message || 'Unknown error'}`,
-      finally: () => {
-        loadConnections()
+    
+    try {
+      const result = await ipcRenderer.invoke('delete-connection', deleteConnectionId)
+      
+      if (result.success) {
+        toast.success('Connection deleted successfully!')
+        await loadConnections()
+        setDeleteConnectionId(null)
+      } else {
+        toast.error(result.message || 'Failed to delete connection')
         setDeleteConnectionId(null)
       }
-    })
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to delete connection')
+      setDeleteConnectionId(null)
+    }
   }
 
   useEffect(() => {

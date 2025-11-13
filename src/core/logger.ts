@@ -61,8 +61,30 @@ class Logger {
     if (!fs.existsSync(this.logFilePath)) {
       return [];
     }
-    const logs = fs.readFileSync(this.logFilePath, "utf-8").split("\n");
-    return logs.slice(-limit).filter((line) => line.trim() !== "");
+    
+    try {
+      const stats = fs.statSync(this.logFilePath);
+      const fileSize = stats.size;
+      
+      // If file is too large (> 10MB), read only last portion
+      if (fileSize > 10 * 1024 * 1024) {
+        const bufferSize = Math.min(fileSize, 500 * 1024); // Read last 500KB
+        const buffer = Buffer.alloc(bufferSize);
+        const fd = fs.openSync(this.logFilePath, 'r');
+        fs.readSync(fd, buffer, 0, bufferSize, fileSize - bufferSize);
+        fs.closeSync(fd);
+        
+        const logs = buffer.toString('utf-8').split('\n');
+        return logs.slice(-limit).filter((line) => line.trim() !== "");
+      }
+      
+      // For smaller files, read normally
+      const logs = fs.readFileSync(this.logFilePath, "utf-8").split("\n");
+      return logs.slice(-limit).filter((line) => line.trim() !== "");
+    } catch (error) {
+      console.error('Error reading logs:', error);
+      return [`Error reading logs: ${error instanceof Error ? error.message : String(error)}`];
+    }
   }
 
   clearLogs(): void {

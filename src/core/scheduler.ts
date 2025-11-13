@@ -701,8 +701,9 @@ export class JobScheduler {
     );
 
     if (jobsUsingConnection.length > 0) {
+      const jobNames = jobsUsingConnection.map(j => `"${j.name}"`).join(", ");
       throw new Error(
-        `Cannot delete connection. ${jobsUsingConnection.length} job(s) are using it.`
+        `Cannot delete connection. ${jobsUsingConnection.length} job(s) are using it: ${jobNames}`
       );
     }
 
@@ -1770,15 +1771,33 @@ export class JobScheduler {
     const showFailed = this.settings.connectionTestShowFailed !== false; // default true
     const showPassed = this.settings.connectionTestShowPassed === true; // default false
 
+    // DEDUPLICATE results by IP combination (static+vpn) before filtering
+    const uniqueResultsMap = new Map<string, typeof results[0]>();
+    for (const result of results) {
+      const staticServer = result.staticServer;
+      const vpnServer = result.vpnServer || "";
+      const ipKey = `${staticServer}|${vpnServer}`;
+      
+      // Keep first occurrence only
+      if (!uniqueResultsMap.has(ipKey)) {
+        uniqueResultsMap.set(ipKey, result);
+      }
+    }
+    
+    const uniqueResults = Array.from(uniqueResultsMap.values());
+    logger.info(
+      `[sendConnectionTestNotification] Deduplicated ${results.length} results to ${uniqueResults.length} unique IPs`
+    );
+
     // Filter results based on status settings
-    let filteredResults = results;
+    let filteredResults = uniqueResults;
     if (!showFailed && !showPassed) {
       // If both are false, show failed only (safety fallback)
-      filteredResults = results.filter((r) => r.status === "failed");
+      filteredResults = uniqueResults.filter((r) => r.status === "failed");
     } else if (showFailed && !showPassed) {
-      filteredResults = results.filter((r) => r.status === "failed");
+      filteredResults = uniqueResults.filter((r) => r.status === "failed");
     } else if (!showFailed && showPassed) {
-      filteredResults = results.filter((r) => r.status === "success");
+      filteredResults = uniqueResults.filter((r) => r.status === "success");
     }
     // If both true, show all (no filter needed)
 

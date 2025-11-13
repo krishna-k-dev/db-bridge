@@ -737,7 +737,7 @@ const SettingsPage = () => {
                 </div>
                 <div className="flex gap-3">
                   <Button
-                    onClick={() => handleMigration(false)}
+                    onClick={() => handleMigration(true)}
                     disabled={isMigrating}
                     className="bg-blue-600 hover:bg-blue-700"
                   >
@@ -1114,7 +1114,7 @@ const SettingsPage = () => {
                           </p>
                           <Button
                             type="button"
-                            onClick={() => handleMigration(false)}
+                            onClick={() => handleMigration(true)}
                             disabled={isMigrating}
                             className="bg-green-600 hover:bg-green-700"
                           >

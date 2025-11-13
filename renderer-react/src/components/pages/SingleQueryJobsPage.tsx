@@ -154,7 +154,7 @@ const SingleQueryJobsPage = ({ onCountChange }: SingleQueryJobsPageProps) => {
           }
         }
       }
-      await ipcRenderer.invoke('save-settings', updated)
+      await ipcRenderer.invoke('update-settings', updated)
     } catch (err) {
       console.error('Failed to persist group filter', err)
     }
