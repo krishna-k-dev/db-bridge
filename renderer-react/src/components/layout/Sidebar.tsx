@@ -40,7 +40,7 @@ const Sidebar = ({ connectionsCount, jobsCount, isOpen = true, onToggle }: Sideb
           <Link to="/" className="block">
             <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
               <Activity className="w-6 h-6 text-primary" />
-              SQL Bridge
+              Bridge
             </h1>
             <p className="text-sm text-gray-600 mt-1">Data Sync Automation</p>
           </Link>

@@ -65,6 +65,7 @@ const MonitoringPage = () => {
   const [selectedJob, setSelectedJob] = useState<JobExecutionHistory | null>(null)
   const [connections, setConnections] = useState<any[]>([])
   const [modalSearchTerm, setModalSearchTerm] = useState('')
+  const [showClearAllDialog, setShowClearAllDialog] = useState(false)
 
   useEffect(() => {
     loadHistory()
@@ -224,8 +225,8 @@ const MonitoringPage = () => {
   }
 
   const handleClearAll = async () => {
-    if (!confirm('Are you sure you want to clear all job history? This cannot be undone.')) return
-
+    setShowClearAllDialog(false)
+    
     const clearPromise = ipcRenderer.invoke('clear-job-history')
 
     toast.promise(clearPromise, {
@@ -276,63 +277,95 @@ const MonitoringPage = () => {
   }
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="p-6">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">Job Execution History</h2>
-            <p className="text-gray-600 mt-1">View and manage job execution logs</p>
-          </div>
-          <div className="flex gap-2">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Job Execution History</h1>
+          <p className="text-gray-600">View and manage job execution logs</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={handleRefresh}
+            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </button>
+          {selectedItems.length > 0 && (
             <button
-              onClick={handleRefresh}
-              className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Refresh
-            </button>
-            {selectedItems.length > 0 && (
-              <button
-                onClick={handleDeleteSelected}
-                className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-              >
-                <Trash2 className="w-4 h-4" />
-                Delete Selected ({selectedItems.length})
-              </button>
-            )}
-            <button
-              onClick={handleExportHistory}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              Export
-            </button>
-            <button
-              onClick={handleClearAll}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+              onClick={handleDeleteSelected}
+              className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
             >
               <Trash2 className="w-4 h-4" />
-              Clear All
+              Delete ({selectedItems.length})
             </button>
-          </div>
+          )}
+          <button
+            onClick={handleExportHistory}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Download className="w-4 h-4" />
+            Export
+          </button>
+          <button
+            onClick={() => setShowClearAllDialog(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+          >
+            <Trash2 className="w-4 h-4" />
+            Clear All
+          </button>
         </div>
+      </div>
 
-        {/* Filters */}
-        <div className="mt-6 flex gap-4">
+      {/* Summary Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg shadow-lg p-6 text-white">
+          <div className="flex items-center justify-between mb-2">
+            <Database className="w-8 h-8 opacity-80" />
+            <div className="text-3xl font-bold">{history.length}</div>
+          </div>
+          <div className="text-sm opacity-90">Total Executions</div>
+        </div>
+        <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-lg shadow-lg p-6 text-white">
+          <div className="flex items-center justify-between mb-2">
+            <CheckCircle2 className="w-8 h-8 opacity-80" />
+            <div className="text-3xl font-bold">{history.filter(h => h.status === 'completed').length}</div>
+          </div>
+          <div className="text-sm opacity-90">Completed</div>
+        </div>
+        <div className="bg-gradient-to-br from-red-500 to-red-600 rounded-lg shadow-lg p-6 text-white">
+          <div className="flex items-center justify-between mb-2">
+            <XCircle className="w-8 h-8 opacity-80" />
+            <div className="text-3xl font-bold">{history.filter(h => h.status === 'failed').length}</div>
+          </div>
+          <div className="text-sm opacity-90">Failed</div>
+        </div>
+        <div className="bg-gradient-to-br from-yellow-500 to-yellow-600 rounded-lg shadow-lg p-6 text-white">
+          <div className="flex items-center justify-between mb-2">
+            <Clock className="w-8 h-8 opacity-80" />
+            <div className="text-3xl font-bold">{history.filter(h => h.status === 'running').length}</div>
+          </div>
+          <div className="text-sm opacity-90">Running</div>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-lg shadow mb-6">
+        <div className="p-4 border-b border-gray-200 flex gap-4">
           <div className="flex-1 relative">
             <input
               type="text"
               placeholder="Search jobs..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-4 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+              className="w-full pl-4 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+            className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="all">All Status</option>
             <option value="completed">Completed</option>
@@ -341,35 +374,9 @@ const MonitoringPage = () => {
           </select>
         </div>
 
-        {/* Summary Stats */}
-        <div className="mt-4 grid grid-cols-4 gap-4">
-          <div className="bg-blue-50 rounded-lg p-3">
-            <div className="text-sm text-blue-600 font-medium">Total Executions</div>
-            <div className="text-2xl font-bold text-blue-900">{history.length}</div>
-          </div>
-          <div className="bg-green-50 rounded-lg p-3">
-            <div className="text-sm text-green-600 font-medium">Completed</div>
-            <div className="text-2xl font-bold text-green-900">
-              {history.filter(h => h.status === 'completed').length}
-            </div>
-          </div>
-          <div className="bg-red-50 rounded-lg p-3">
-            <div className="text-sm text-red-600 font-medium">Failed</div>
-            <div className="text-2xl font-bold text-red-900">
-              {history.filter(h => h.status === 'failed').length}
-            </div>
-          </div>
-          <div className="bg-purple-50 rounded-lg p-3">
-            <div className="text-sm text-purple-600 font-medium">Running</div>
-            <div className="text-2xl font-bold text-purple-900">
-              {history.filter(h => h.status === 'running').length}
-            </div>
-          </div>
-        </div>
-
         {/* Connection Pool Monitoring */}
         {poolMetrics && (
-          <div className="mt-6 bg-gradient-to-r from-cyan-50 to-blue-50 rounded-lg p-4 border border-cyan-200">
+          <div className="p-4 bg-gradient-to-r from-cyan-50 to-blue-50 border-t border-gray-200">
             <div className="flex items-center gap-2 mb-4">
               <Database className="w-5 h-5 text-cyan-600" />
               <h3 className="text-lg font-bold text-gray-900">SQL Connection Pool Status</h3>
@@ -431,135 +438,133 @@ const MonitoringPage = () => {
             )}
           </div>
         )}
-      </header>
+      </div>
 
-      {/* Table */}
-      <div className="flex-1 overflow-auto p-6">
-        <div className="bg-white rounded-lg border border-gray-200 overflow-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
+      {/* History Table */}
+      <div className="bg-white rounded-lg shadow overflow-auto">
+        <table className="w-full">
+          <thead className="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-500 uppercase tracking-tight">
+                <input
+                  type="checkbox"
+                  checked={selectedItems.length === filteredHistory.length && filteredHistory.length > 0}
+                  onChange={(e) => {
+                    if (e.target.checked) {
+                      setSelectedItems(filteredHistory.map(h => h.id))
+                    } else {
+                      setSelectedItems([])
+                    }
+                  }}
+                  className="h-3.5 w-3.5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+              </th>
+              <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-500 uppercase tracking-tight">
+                Status
+              </th>
+              <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-500 uppercase tracking-tight">
+                Job Name
+              </th>
+              <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-500 uppercase tracking-tight">
+                Started At
+              </th>
+              <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-500 uppercase tracking-tight">
+                Duration
+              </th>
+              <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-500 uppercase tracking-tight">
+                Connections
+              </th>
+              <th className="px-2 py-1.5 text-left text-[10px] font-medium text-gray-500 uppercase tracking-tight">
+                Result
+              </th>
+              <th className="px-2 py-1.5 text-right text-[10px] font-medium text-gray-500 uppercase tracking-tight">
+                Actions
+              </th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {filteredHistory.length === 0 ? (
               <tr>
-                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  <input
-                    type="checkbox"
-                    checked={selectedItems.length === filteredHistory.length && filteredHistory.length > 0}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setSelectedItems(filteredHistory.map(h => h.id))
-                      } else {
-                        setSelectedItems([])
-                      }
-                    }}
-                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                  />
-                </th>
-                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Job Name
-                </th>
-                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Started At
-                </th>
-                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Duration
-                </th>
-                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Connections
-                </th>
-                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Result
-                </th>
-                <th className="px-2 py-1 text-right text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Actions
-                </th>
+                <td colSpan={8} className="px-6 py-8 text-center text-gray-500 text-sm">
+                  No job history found. Jobs will appear here after execution.
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 text-xs">
-              {filteredHistory.length === 0 ? (
-                <tr>
-                    <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
-                    No job history found. Jobs will appear here after execution.
+            ) : (
+              filteredHistory.map((item) => (
+                <tr key={item.id} className="hover:bg-gray-50">
+                  <td className="px-2 py-1 whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={selectedItems.includes(item.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedItems(prev => [...prev, item.id])
+                        } else {
+                          setSelectedItems(prev => prev.filter(id => id !== item.id))
+                        }
+                      }}
+                      className="h-3.5 w-3.5 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                  </td>
+                  <td className="px-2 py-1 whitespace-nowrap">
+                    <div className="flex items-center gap-1">
+                      {getStatusIcon(item.status)}
+                      {getStatusBadge(item.status)}
+                    </div>
+                  </td>
+                  <td className="px-2 py-1 whitespace-nowrap text-[11px] font-medium text-gray-900">
+                    {item.jobName}
+                  </td>
+                  <td className="px-2 py-1 whitespace-nowrap text-[11px] text-gray-700">
+                    {new Date(item.startedAt).toLocaleString()}
+                  </td>
+                  <td className="px-2 py-1 whitespace-nowrap text-[11px] text-gray-700">
+                    {item.duration ? `${(item.duration / 1000).toFixed(2)}s` : '-'}
+                  </td>
+                  <td className="px-2 py-1 whitespace-nowrap text-[11px] text-gray-700">
+                    <div className="flex items-center gap-1">
+                      <span className="text-green-600">{item.completedConnections}</span>
+                      <span className="text-gray-400">/</span>
+                      <span>{item.totalConnections}</span>
+                      {item.failedConnections > 0 && (
+                        <span className="text-red-600">({item.failedConnections} failed)</span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-2 py-1 whitespace-nowrap text-[11px] text-gray-700">
+                    {item.errors && item.errors.length > 0 ? (
+                      <div className="text-red-600">
+                        {item.errors.length} error(s)
+                      </div>
+                    ) : (
+                      <span className="text-green-600">Success</span>
+                    )}
+                  </td>
+                  <td className="px-2 py-1 whitespace-nowrap text-right">
+                    <div className="flex gap-1 justify-end">
+                      <button
+                        onClick={() => handleViewJob(item)}
+                        className="px-2 py-0.5 bg-blue-500 text-white rounded hover:bg-blue-600 text-[10px]"
+                      >
+                        <Eye className="w-3 h-3 inline mr-0.5" />
+                        View
+                      </button>
+                      {item.failedConnections > 0 && item.connectionDetails && (
+                        <button
+                          onClick={() => setRetryJobId(item.id)}
+                          disabled={retryingJobs.includes(item.id)}
+                          className="px-2 py-0.5 bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50 text-[10px]"
+                        >
+                          {retryingJobs.includes(item.id) ? 'Retrying...' : 'Retry Failed'}
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
-              ) : (
-                filteredHistory.map((item) => (
-                  <tr key={item.id} className="hover:bg-gray-50">
-                    <td className="px-2 py-1 whitespace-nowrap">
-                      <input
-                        type="checkbox"
-                        checked={selectedItems.includes(item.id)}
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedItems(prev => [...prev, item.id])
-                          } else {
-                            setSelectedItems(prev => prev.filter(id => id !== item.id))
-                          }
-                        }}
-                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                      />
-                    </td>
-                    <td className="px-2 py-1 whitespace-nowrap">
-                      <div className="flex items-center gap-2">
-                        {getStatusIcon(item.status)}
-                        {getStatusBadge(item.status)}
-                      </div>
-                    </td>
-                    <td className="px-2 py-1 whitespace-nowrap font-medium text-gray-900">
-                      {item.jobName}
-                    </td>
-                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
-                      {new Date(item.startedAt).toLocaleString()}
-                    </td>
-                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
-                      {item.duration ? `${(item.duration / 1000).toFixed(2)}s` : '-'}
-                    </td>
-                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
-                      <div className="flex items-center gap-2">
-                        <span className="text-green-600">{item.completedConnections}</span>
-                        <span className="text-gray-400">/</span>
-                        <span>{item.totalConnections}</span>
-                        {item.failedConnections > 0 && (
-                          <span className="text-red-600">({item.failedConnections} failed)</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
-                      {item.errors && item.errors.length > 0 ? (
-                        <div className="text-red-600 text-xs">
-                          {item.errors.length} error(s)
-                        </div>
-                      ) : (
-                        <span className="text-green-600">Success</span>
-                      )}
-                    </td>
-                    <td className="px-2 py-1 whitespace-nowrap text-right">
-                      <div className="flex gap-2 justify-end">
-                        <button
-                          onClick={() => handleViewJob(item)}
-                          className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-xs"
-                        >
-                          <Eye className="w-3 h-3 inline mr-1" />
-                          View
-                        </button>
-                        {item.failedConnections > 0 && item.connectionDetails && (
-                          <button
-                            onClick={() => setRetryJobId(item.id)}
-                            disabled={retryingJobs.includes(item.id)}
-                            className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 disabled:opacity-50 text-xs"
-                          >
-                            {retryingJobs.includes(item.id) ? 'Retrying...' : 'Retry Failed'}
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
 
       {/* Job Details Modal */}
@@ -692,6 +697,24 @@ const MonitoringPage = () => {
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleRetryJob} className="bg-orange-600 hover:bg-orange-700">
               Retry
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Clear All Confirmation Dialog */}
+      <AlertDialog open={showClearAllDialog} onOpenChange={setShowClearAllDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear All Job History</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to clear all job history? This will permanently delete all execution records and cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleClearAll} className="bg-red-600 hover:bg-red-700">
+              Clear All
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

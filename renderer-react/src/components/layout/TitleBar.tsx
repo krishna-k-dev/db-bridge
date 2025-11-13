@@ -71,7 +71,7 @@ const TitleBar = ({ onToggleSidebar }: TitleBarProps) => {
           <Menu className="w-5 h-5" />
         </button>
         <img src={Logo} alt="Logo" className="w-5 h-5" />
-        <span className="text-white text-sm font-medium">SQL Bridge</span>
+        <span className="text-white text-sm font-medium">Bridge</span>
       </div>
       <div className="flex" style={{ WebkitAppRegion: 'no-drag' } as any}>
         <button

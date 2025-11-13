@@ -1611,9 +1611,42 @@ export class JobScheduler {
   }> {
     logger.info("[testAllConnectionsAndNotify] Starting connection test...");
 
-    // Test all connections in PARALLEL for speed (with fallback logic built-in)
-    const results = await Promise.all(
-      this.connections.map(async (connection) => {
+    // Filter connections to get unique IP combinations (static + VPN)
+    const uniqueConnections = new Map<string, any>();
+    const duplicateConnections = new Map<string, string[]>(); // Track which connections share same IP
+
+    for (const conn of this.connections) {
+      const staticServer = conn.server;
+      const vpnServer = (conn as any).vpnServer || "";
+      const ipKey = `${staticServer}|${vpnServer}`; // Unique key for IP combination
+
+      if (!uniqueConnections.has(ipKey)) {
+        uniqueConnections.set(ipKey, conn);
+        duplicateConnections.set(ipKey, [conn.name]);
+      } else {
+        // Track duplicate connection names for this IP
+        duplicateConnections.get(ipKey)?.push(conn.name);
+      }
+    }
+
+    logger.info(
+      `[testAllConnectionsAndNotify] Filtered ${this.connections.length} connections to ${uniqueConnections.size} unique IPs`
+    );
+
+    // Log which connections share IPs
+    for (const [ipKey, names] of duplicateConnections.entries()) {
+      if (names.length > 1) {
+        logger.info(
+          `[testAllConnectionsAndNotify] IP ${ipKey} shared by: ${names.join(
+            ", "
+          )}`
+        );
+      }
+    }
+
+    // Test only unique connections in PARALLEL for speed
+    const uniqueTestResults = await Promise.all(
+      Array.from(uniqueConnections.values()).map(async (connection) => {
         try {
           const connector = new (
             await import("../connectors/sql")
@@ -1660,11 +1693,39 @@ export class JobScheduler {
       })
     );
 
+    // Now update ALL connections that share the same IP with the test result
+    const results: typeof uniqueTestResults = [];
+
+    for (const testResult of uniqueTestResults) {
+      const staticServer = testResult.staticServer;
+      const vpnServer = testResult.vpnServer || "";
+      const ipKey = `${staticServer}|${vpnServer}`;
+      const sharedConnectionNames = duplicateConnections.get(ipKey) || [];
+
+      // For each connection sharing this IP, update its status
+      for (const connName of sharedConnectionNames) {
+        const conn = this.connections.find((c) => c.name === connName);
+        if (conn) {
+          conn.activeServerType = testResult.activeServerType;
+          conn.lastTested = new Date();
+          conn.testStatus =
+            testResult.status === "success" ? "connected" : "failed";
+        }
+
+        // Add result for this connection to the results array
+        results.push({
+          ...testResult,
+          name: connName,
+          store: conn?.store || testResult.store,
+        });
+      }
+    }
+
     logger.info(
-      `[testAllConnectionsAndNotify] Tested ${results.length} connections in parallel`
+      `[testAllConnectionsAndNotify] Tested ${uniqueConnections.size} unique IPs, applied to ${results.length} total connections`
     );
 
-    // Send WhatsApp notification
+    // Send WhatsApp notification with all connection results
     await this.sendConnectionTestNotification(results);
 
     return {
@@ -1808,10 +1869,13 @@ export class JobScheduler {
         `[sendWhatsAppMessage] Sending to ${recipient} (group: ${isGroup})`
       );
 
-      const axios = (await import("axios")).default;
-
-      // Use WhatsApp API endpoint
-      const apiUrl = "https://systemtest.rajmandirhypermarket.com/api/send";
+      const axiosInstance = (await import("axios")).default.create({
+        baseURL: "https://whatsapp.rajmandirhypermarket.com",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer cmFqbWFuZGlyLmFkaXR5YTpBZGVlaXNnb29kQDE3MDc",
+        },
+      });
 
       // Format according to API documentation
       const payload = isGroup
@@ -1830,12 +1894,7 @@ export class JobScheduler {
 
       logger.info(`[sendWhatsAppMessage] Sending payload:`, undefined, payload);
 
-      const result = await axios.post(apiUrl, payload, {
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: "Bearer cmFqbWFuZGlyLmFkaXR5YTpBZGVlaXNnb29kQDE3MDc",
-        },
-      });
+      const result = await axiosInstance.post("/api/send", payload);
 
       logger.info(
         `[sendWhatsAppMessage] API Response:`,

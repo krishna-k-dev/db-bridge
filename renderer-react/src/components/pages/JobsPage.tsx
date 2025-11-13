@@ -1,30 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Plus, Search, MoreVertical, Edit, Trash2, Play, Pause, Sparkle, Copy } from 'lucide-react'
+import { Plus, Database, Sparkle, ArrowRight } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { toast } from "sonner"
 
 // @ts-ignore - Electron types
@@ -33,16 +9,7 @@ const { ipcRenderer } = window.require('electron')
 interface Job {
   id: string
   name: string
-  connectionId?: string
-  connectionIds?: string[]
-  schedule: string
-  recurrenceType?: 'once' | 'daily' | 'every-n-days'
-  everyNDays?: number
-  timeOfDay?: string
-  enabled: boolean
-  destinations: any[]
-  lastRun?: string
-  group?: string
+  queries?: any[]
 }
 
 interface JobsPageProps {
@@ -51,370 +18,120 @@ interface JobsPageProps {
 
 const JobsPage = ({ onCountChange }: JobsPageProps) => {
   const navigate = useNavigate()
-
-  const formatSchedule = (job: any) => {
-    if (job.timeOfDay) {
-      return `Daily at ${job.timeOfDay}`;
-    }
-    return job.schedule || 'Manual';
-  };
-  const [jobs, setJobs] = useState<Job[]>([])
-  const [searchTerm, setSearchTerm] = useState('')
-  const [groupFilter, setGroupFilter] = useState('none')
-  const [jobGroups, setJobGroups] = useState<string[]>([])
-  const [deleteJobId, setDeleteJobId] = useState<string | null>(null)
+  const [singleJobsCount, setSingleJobsCount] = useState(0)
+  const [multiJobsCount, setMultiJobsCount] = useState(0)
 
   useEffect(() => {
-    loadJobs()
-  }, [])
-
-  // Restore group filter from persisted settings (IPC) or fallback to localStorage.
-  useEffect(() => {
-    let mounted = true
-
-    const restore = async () => {
-      try {
-        const settings = await ipcRenderer.invoke('get-settings')
-        const ui = (settings && (settings as any).ui) || {}
-        const jobsUi = ui.jobs || {}
-        const saved = jobsUi.groupFilter || localStorage.getItem('jobs.groupFilter')
-        if (mounted && saved) setGroupFilter(saved)
-      } catch (err) {
-        try {
-          const saved = localStorage.getItem('jobs.groupFilter')
-          if (mounted && saved) setGroupFilter(saved)
-        } catch (e) {
-          // ignore
-        }
-      }
-    }
-
-    restore()
-
-    return () => { mounted = false }
+    loadJobsCounts()
   }, [])
 
   useEffect(() => {
-    onCountChange(jobs.length)
-  }, [jobs, onCountChange])
+    onCountChange(singleJobsCount + multiJobsCount)
+  }, [singleJobsCount, multiJobsCount, onCountChange])
 
-  const loadJobs = async () => {
+  const loadJobsCounts = async () => {
     try {
-      const data = await ipcRenderer.invoke('get-jobs')
-      if (data) {
-        setJobs(data)
-      }
-      const jgs = await ipcRenderer.invoke('get-job-groups')
-      setJobGroups(jgs || [])
+      const allJobs: Job[] = await ipcRenderer.invoke('get-jobs')
+      const singleJobs = allJobs.filter((job: Job) => !job.queries || job.queries.length === 0)
+      const multiJobs = allJobs.filter((job: Job) => job.queries && job.queries.length > 0)
+      
+      setSingleJobsCount(singleJobs.length)
+      setMultiJobsCount(multiJobs.length)
     } catch (error) {
       console.error('Failed to load jobs:', error)
+      toast.error('Failed to load jobs')
     }
   }
-
-  const handleRunJob = async (jobId: string) => {
-    const jobPromise = ipcRenderer.invoke('run-job', jobId)
-
-    toast.promise(jobPromise, {
-      loading: 'Running job...',
-      success: (result: any) => {
-        loadJobs() // Refresh jobs list
-        return result?.message || 'Job completed successfully!'
-      },
-      error: (error: any) => {
-        console.error('Failed to run job:', error)
-        return error?.message || 'Failed to run job. Please try again.'
-      }
-    })
-  }
-
-  // Persist groupFilter to both localStorage and app settings (IPC) so it
-  // survives navigation, updates and even app restarts.
-  useEffect(() => {
-    try {
-      localStorage.setItem('jobs.groupFilter', groupFilter)
-    } catch (err) {
-      // ignore
-    }
-
-    // Also persist into app settings via IPC (merge with existing settings)
-    const persist = async () => {
-      try {
-        const current = await ipcRenderer.invoke('get-settings')
-        const newSettings = { ...(current || {}), ui: { ...(current?.ui || {}), jobs: { ...(current?.ui?.jobs || {}), groupFilter } } }
-        await ipcRenderer.invoke('update-settings', newSettings)
-      } catch (err) {
-        // ignore persistence errors - localStorage still works
-      }
-    }
-
-    persist()
-  }, [groupFilter])
-
-  const handleToggleJob = async (jobId: string, enabled: boolean) => {
-    const togglePromise = ipcRenderer.invoke('update-job', jobId, { enabled: !enabled })
-
-    toast.promise(togglePromise, {
-      loading: `${enabled ? 'Disabling' : 'Enabling'} job...`,
-      success: () => {
-        loadJobs() // Refresh jobs list
-        return `Job ${!enabled ? 'enabled' : 'disabled'} successfully!`
-      },
-      error: (error: any) => {
-        console.error('Failed to toggle job:', error)
-        return 'Failed to update job status. Please try again.'
-      }
-    })
-  }
-
-  const handleEditJob = (jobId: string) => {
-    navigate(`/jobs/${jobId}/edit`)
-  }
-
-  const handleDuplicateJob = async (jobId: string) => {
-    try {
-      const jobs = await ipcRenderer.invoke('get-jobs')
-      const jobToDuplicate = jobs.find((j: any) => j.id === jobId)
-      if (!jobToDuplicate) return
-
-      const duplicatedJob = {
-        ...jobToDuplicate,
-        id: undefined, // Let the backend generate new ID
-        name: `${jobToDuplicate.name} (Copy)`,
-        enabled: false, // Disable by default
-        lastRun: undefined
-      }
-
-      const duplicatePromise = ipcRenderer.invoke('create-job', duplicatedJob)
-
-      toast.promise(duplicatePromise, {
-        loading: 'Duplicating job...',
-        success: () => {
-          loadJobs() // Refresh jobs list
-          return 'Job duplicated successfully!'
-        },
-        error: (error: any) => {
-          console.error('Failed to duplicate job:', error)
-          return 'Failed to duplicate job. Please try again.'
-        }
-      })
-    } catch (error) {
-      console.error('Failed to duplicate job:', error)
-      toast.error('Failed to duplicate job. Please try again.')
-    }
-  }
-
-  const handleDeleteJob = async () => {
-    if (!deleteJobId) return
-
-    const deletePromise = ipcRenderer.invoke('delete-job', deleteJobId)
-
-    toast.promise(deletePromise, {
-      loading: 'Deleting job...',
-      success: () => {
-        loadJobs() // Refresh jobs list
-        setDeleteJobId(null)
-        return 'Job deleted successfully!'
-      },
-      error: (error: any) => {
-        console.error('Failed to delete job:', error)
-        return 'Failed to delete job. Please try again.'
-      }
-    })
-  }
-
-  const filteredJobs = jobs.filter(job =>
-    job.name.toLowerCase().includes(searchTerm.toLowerCase()) &&
-    (groupFilter === 'all' || (groupFilter === 'none' ? !job.group : job.group === groupFilter))
-  )
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 p-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">Jobs</h2>
-            <p className="text-gray-600 mt-1">Manage your data sync jobs</p>
-          </div>
-          <button 
-            onClick={() => navigate('/jobs/create')}
-            className="flex items-center gap-2 px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
-          >
-            <Plus className="w-4 h-4" />
-            Create Job
-          </button>
+    <div className="p-6">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Jobs Dashboard</h1>
+          <p className="text-gray-600">Manage your data sync jobs</p>
         </div>
+        <button
+          onClick={() => navigate('/jobs/create')}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+        >
+          <Plus className="w-4 h-4" />
+          Create Job
+        </button>
+      </div>
 
-        <div className="mt-6">
-          <div className="flex gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search jobs..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-              />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div 
+          onClick={() => navigate('/jobs/single')}
+          className="bg-white rounded-lg shadow-lg border-2 border-gray-200 hover:border-blue-500 hover:shadow-xl transition-all cursor-pointer p-6 group"
+        >
+          <div className="flex items-start justify-between mb-4">
+            <div className="bg-blue-100 p-3 rounded-lg group-hover:bg-blue-600 transition-colors">
+              <Database className="w-8 h-8 text-blue-600 group-hover:text-white" />
             </div>
-            <div className="w-48">
-              <Select value={groupFilter} onValueChange={(v) => setGroupFilter(v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Filter by Group" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Groups</SelectItem>
-                  <SelectItem value="none">No Group</SelectItem>
-                  {jobGroups.map((jg) => (
-                    <SelectItem key={jg} value={jg}>{jg}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <ArrowRight className="w-5 h-5 text-gray-400 group-hover:text-blue-600 transition-colors" />
+          </div>
+          
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Single Query Jobs</h2>
+          <p className="text-gray-600 mb-4">Jobs that run a single SQL query</p>
+          
+          <div className="flex items-baseline gap-2">
+            <span className="text-4xl font-bold text-blue-600">{singleJobsCount}</span>
+            <span className="text-gray-500">jobs</span>
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <button className="text-blue-600 font-medium text-sm group-hover:underline flex items-center gap-1">
+              View All
+              <ArrowRight className="w-4 h-4" />
+            </button>
           </div>
         </div>
-      </header>
 
-      {/* Table */}
-      <div className="flex-1 overflow-auto p-6">
-        <div className="bg-white rounded-lg border border-gray-200 overflow-auto">
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b border-gray-200">
-              <tr>
-                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Name
-                </th>
-                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Type
-                </th>
-                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Group
-                </th>
-                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Connection
-                </th>
-                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Schedule
-                </th>
-                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Status
-                </th>
-                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Destinations
-                </th>
-                <th className="px-2 py-1 text-left text-xs font-medium text-gray-700 uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200 text-xs">
-              {filteredJobs.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-2 py-12 text-center text-gray-500">
-                    No jobs found. Click "Create Job" to get started.
-                  </td>
-                </tr>
-              ) : (
-                filteredJobs.map((job, idx) => (
-                  <tr key={job.id ?? `job-${idx}-${(job.name || '').replace(/\s+/g, '-')}` } className="hover:bg-gray-50">
-                    <td className="px-2 py-1 whitespace-nowrap font-medium text-gray-900">
-                      {job.name}
-                    </td>
-                    <td className="px-2 py-1 whitespace-nowrap">
-                      {(job as any).queries && (job as any).queries.length > 0 ? (
-                        <span className="px-2 py-1 text-xs font-semibold rounded-full bg-purple-100 text-purple-800">
-                          Multi-Query ({(job as any).queries.length})
-                        </span>
-                      ) : (
-                        <span className="px-2 py-1 text-xs font-semibold rounded-full bg-blue-100 text-blue-800">
-                          Single
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
-                      {job.group || '-'}
-                    </td>
-                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
-                      {(job.connectionIds?.length || (job.connectionId ? 1 : 0))} connection{(job.connectionIds?.length || (job.connectionId ? 1 : 0)) !== 1 ? 's' : ''}
-                    </td>
-                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
-                      {formatSchedule(job)}
-                    </td>
-                    <td className="px-2 py-1 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
-                        job.enabled
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {job.enabled ? 'Enabled' : 'Disabled'}
-                      </span>
-                    </td>
-                    <td className="px-2 py-1 whitespace-nowrap text-gray-700">
-                      {job.destinations?.length || 0} destination{job.destinations?.length !== 1 ? 's' : ''}
-                    </td>
-                    <td className="px-2 py-1 whitespace-nowrap">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button className="p-1 hover:bg-gray-100 rounded transition-colors">
-                            <MoreVertical className="w-4 h-4 text-gray-600" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleRunJob(job.id)}>
-                            <Sparkle  className="w-4 h-4 mr-2" />
-                            Run Job
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleToggleJob(job.id, job.enabled)}>
-                            {job.enabled ? (
-                              <Pause className="w-4 h-4 mr-2" />
-                            ) : (
-                              <Play className="w-4 h-4 mr-2" />
-                            )}
-                            {job.enabled ? 'Disable' : 'Enable'}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleEditJob(job.id)}>
-                            <Edit className="w-4 h-4 mr-2" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleDuplicateJob(job.id)}>
-                            <Copy className="w-4 h-4 mr-2" />
-                            Duplicate
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem 
-                            onClick={() => setDeleteJobId(job.id)}
-                            className="text-red-600 focus:text-red-600"
-                          >
-                            <Trash2 className="w-4 h-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+        <div 
+          onClick={() => navigate('/jobs/multi-query')}
+          className="bg-white rounded-lg shadow-lg border-2 border-gray-200 hover:border-purple-500 hover:shadow-xl transition-all cursor-pointer p-6 group"
+        >
+          <div className="flex items-start justify-between mb-4">
+            <div className="bg-purple-100 p-3 rounded-lg group-hover:bg-purple-600 transition-colors">
+              <Sparkle className="w-8 h-8 text-purple-600 group-hover:text-white" />
+            </div>
+            <ArrowRight className="w-5 h-5 text-gray-400 group-hover:text-purple-600 transition-colors" />
+          </div>
+          
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Multi-Query Jobs</h2>
+          <p className="text-gray-600 mb-4">Jobs with multiple named queries</p>
+          
+          <div className="flex items-baseline gap-2">
+            <span className="text-4xl font-bold text-purple-600">{multiJobsCount}</span>
+            <span className="text-gray-500">jobs</span>
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <button className="text-purple-600 font-medium text-sm group-hover:underline flex items-center gap-1">
+              View All
+              <ArrowRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       </div>
 
-      <AlertDialog open={!!deleteJobId} onOpenChange={() => setDeleteJobId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Job</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete this job? This action cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteJob} className="bg-red-600 hover:bg-red-700">
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <div className="mt-8 bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Stats</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-white rounded-lg p-4 shadow-sm">
+            <p className="text-sm text-gray-600 mb-1">Total Jobs</p>
+            <p className="text-2xl font-bold text-gray-900">{singleJobsCount + multiJobsCount}</p>
+          </div>
+          <div className="bg-white rounded-lg p-4 shadow-sm">
+            <p className="text-sm text-gray-600 mb-1">Single Query</p>
+            <p className="text-2xl font-bold text-blue-600">{singleJobsCount}</p>
+          </div>
+          <div className="bg-white rounded-lg p-4 shadow-sm">
+            <p className="text-sm text-gray-600 mb-1">Multi-Query</p>
+            <p className="text-2xl font-bold text-purple-600">{multiJobsCount}</p>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

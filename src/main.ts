@@ -173,7 +173,7 @@ function createWindow(): void {
       // Show tray notification first time
       if (tray && process.platform === "win32") {
         tray.displayBalloon({
-          title: "SQL Bridge Running",
+          title: "Bridge Running",
           content:
             "Application minimized to system tray. Click icon to restore.",
           icon: nativeImage.createFromPath(
@@ -214,7 +214,7 @@ function createTray(): void {
 
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: "Show SQL Bridge",
+      label: "Show Bridge",
       click: () => {
         if (mainWindow) {
           mainWindow.show();
@@ -254,7 +254,7 @@ function createTray(): void {
     },
   ]);
 
-  tray.setToolTip("SQL Bridge - Running in Background\nRight-click for menu");
+  tray.setToolTip("Bridge - Running in Background\nRight-click for menu");
   tray.setContextMenu(contextMenu);
 
   // Double click to show window
@@ -282,7 +282,7 @@ function createTray(): void {
 // Update tray tooltip periodically with status
 function updateTrayStatus(message?: string) {
   if (tray) {
-    const baseTooltip = "SQL Bridge - Running in Background";
+    const baseTooltip = "Bridge - Running in Background";
     const fullTooltip = message
       ? `${baseTooltip}\n${message}\nClick for menu, Quit from menu`
       : `${baseTooltip}\nClick for menu, Quit from menu`;
@@ -290,9 +290,208 @@ function updateTrayStatus(message?: string) {
   }
 }
 
+// Check if old "SQL Bridge" data exists
+function checkOldDataExists() {
+  try {
+    const newUserDataPath = app.getPath("userData");
+    
+    // Get AppData/Roaming path
+    const appDataPath = path.dirname(path.dirname(newUserDataPath));
+    
+    // Possible old paths to check
+    const possibleOldPaths = [
+      // Most likely old app names
+      path.join(appDataPath, "sql-bridge-app"),  // Primary: old app name
+      path.join(appDataPath, "SQL Bridge"),
+      path.join(appDataPath, "sql-bridge"),
+      path.join(appDataPath, "SQLBridge"),
+      path.join(appDataPath, "bridge-app-old"),
+      // Direct replacement in current path
+      newUserDataPath.replace(/bridge-app$/i, "sql-bridge-app"),
+    ];
+
+    logger.info("=== Checking for old SQL Bridge data ===");
+    logger.info(`Current app data path: ${newUserDataPath}`);
+    logger.info(`Searching in possible locations:`);
+    possibleOldPaths.forEach(p => logger.info(`  - ${p}`));
+
+    let foundOldPath: string | null = null;
+    const itemsToMigrate = ["config", "logs", "job-history.json", "settings.json"];
+    const availableItems: string[] = [];
+
+    // Check each possible location
+    for (const oldPath of possibleOldPaths) {
+      if (fs.existsSync(oldPath) && oldPath !== newUserDataPath) {
+        logger.info(`✓ Found old data directory: ${oldPath}`);
+        
+        // Check which items exist in old location
+        itemsToMigrate.forEach((item) => {
+          const oldItemPath = path.join(oldPath, item);
+          
+          // Show item if it exists in old location, regardless of new location
+          if (fs.existsSync(oldItemPath)) {
+            if (!availableItems.includes(item)) {
+              availableItems.push(item);
+              const newItemPath = path.join(newUserDataPath, item);
+              const alreadyExists = fs.existsSync(newItemPath);
+              logger.info(`  ✓ Found item: ${item}${alreadyExists ? ' (already migrated, can force re-migrate)' : ' (ready to migrate)'}`);
+            }
+          }
+        });
+
+        if (availableItems.length > 0) {
+          foundOldPath = oldPath;
+          break; // Found data, no need to check other paths
+        }
+      }
+    }
+
+    if (foundOldPath && availableItems.length > 0) {
+      logger.info(`✅ Migration available: ${availableItems.length} items found`);
+      return {
+        exists: true,
+        oldPath: foundOldPath,
+        newPath: newUserDataPath,
+        items: availableItems,
+      };
+    } else {
+      logger.info("ℹ No old SQL Bridge data found or already migrated");
+      return { exists: false, oldPath: null, newPath: null, items: [] };
+    }
+  } catch (error) {
+    logger.error(
+      `Error checking old data: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return { exists: false, oldPath: null, newPath: null, items: [] };
+  }
+}
+
+// Migrate old "SQL Bridge" data to new "Bridge" directory
+function migrateOldData(force = false, customOldPath?: string) {
+  try {
+    const newUserDataPath = app.getPath("userData");
+    let oldUserDataPath: string | null = null;
+
+    if (customOldPath) {
+      // Use custom path if provided
+      oldUserDataPath = customOldPath;
+      logger.info(`Using custom old path: ${oldUserDataPath}`);
+    } else {
+      // Auto-detect old path
+      const checkResult = checkOldDataExists();
+      if (checkResult.exists && checkResult.oldPath) {
+        oldUserDataPath = checkResult.oldPath;
+      }
+    }
+
+    if (!oldUserDataPath || !fs.existsSync(oldUserDataPath)) {
+      const msg = "No old SQL Bridge data found";
+      logger.info(msg);
+      return { success: false, message: msg, migratedCount: 0 };
+    }
+
+    if (oldUserDataPath === newUserDataPath) {
+      const msg = "Data paths are same, no migration needed";
+      logger.info(msg);
+      return { success: false, message: msg, migratedCount: 0 };
+    }
+
+    logger.info("=== Starting Migration ===");
+    logger.info(`From: ${oldUserDataPath}`);
+    logger.info(`To: ${newUserDataPath}`);
+
+    // Files/directories to migrate
+    const itemsToMigrate = [
+      "config",
+      "logs",
+      "job-history.json",
+      "settings.json",
+    ];
+
+    let migratedCount = 0;
+    const migratedItems: string[] = [];
+    const errors: string[] = [];
+
+    itemsToMigrate.forEach((item) => {
+      const oldPath = path.join(oldUserDataPath, item);
+      const newPath = path.join(newUserDataPath, item);
+
+      if (fs.existsSync(oldPath)) {
+        // Check if new path exists
+        if (!fs.existsSync(newPath) || force) {
+          try {
+            // Backup existing if force mode
+            if (force && fs.existsSync(newPath)) {
+              const backupPath = `${newPath}.backup-${Date.now()}`;
+              if (fs.statSync(newPath).isDirectory()) {
+                fs.cpSync(newPath, backupPath, { recursive: true });
+              } else {
+                fs.copyFileSync(newPath, backupPath);
+              }
+              logger.info(`📦 Backed up existing ${item} to ${backupPath}`);
+            }
+
+            // Copy directory or file
+            if (fs.statSync(oldPath).isDirectory()) {
+              if (fs.existsSync(newPath) && force) {
+                fs.rmSync(newPath, { recursive: true });
+              }
+              fs.cpSync(oldPath, newPath, { recursive: true });
+              logger.info(`✅ Migrated directory: ${item}`);
+            } else {
+              fs.copyFileSync(oldPath, newPath);
+              logger.info(`✅ Migrated file: ${item}`);
+            }
+            migratedCount++;
+            migratedItems.push(item);
+          } catch (err) {
+            const errorMsg = `Failed to migrate ${item}: ${
+              err instanceof Error ? err.message : String(err)
+            }`;
+            logger.error(errorMsg);
+            errors.push(errorMsg);
+          }
+        }
+      }
+    });
+
+    const message =
+      migratedCount > 0
+        ? `✅ Migration complete! Migrated ${migratedCount} items from SQL Bridge to Bridge`
+        : "No items needed migration (already exist in new location)";
+
+    logger.info(message);
+    logger.info("=== Migration Complete ===");
+
+    return {
+      success: migratedCount > 0,
+      message,
+      migratedCount,
+      migratedItems,
+      errors,
+    };
+  } catch (error) {
+    const errorMsg = `Error during data migration: ${
+      error instanceof Error ? error.message : String(error)
+    }`;
+    logger.error(errorMsg);
+    return {
+      success: false,
+      message: errorMsg,
+      migratedCount: 0,
+      errors: [errorMsg],
+    };
+  }
+}
+
 app.whenReady().then(() => {
   // Initialize @electron/remote
   remoteMain.initialize();
+
+  // Don't auto-migrate - let user choose from UI
+  // migrateOldData();
 
   // Load job history
   loadJobHistory();
@@ -348,7 +547,7 @@ app.whenReady().then(() => {
   scheduler.startAll();
   scheduler.startConnectionTestScheduler(); // Start connection test scheduler
 
-  logger.info("SQL Bridge App started");
+  logger.info("Bridge App started");
 
   // IPC Handlers
 
@@ -390,6 +589,16 @@ app.whenReady().then(() => {
   });
 
   ipcMain.handle("run-job", async (_event, jobId: string) => {
+    try {
+      await scheduler.runJobNow(jobId);
+      return { success: true, message: "Job executed successfully" };
+    } catch (error: any) {
+      return { success: false, message: error.message };
+    }
+  });
+
+  // Alias for run-job
+  ipcMain.handle("run-job-now", async (_event, jobId: string) => {
     try {
       await scheduler.runJobNow(jobId);
       return { success: true, message: "Job executed successfully" };
@@ -545,6 +754,54 @@ app.whenReady().then(() => {
     );
 
     return { success: true };
+  });
+
+  // Migration Handlers
+  ipcMain.handle("check-old-data", () => {
+    return checkOldDataExists();
+  });
+
+  ipcMain.handle("migrate-old-data", async (_event, force = false, customOldPath?: string) => {
+    try {
+      const result = migrateOldData(force, customOldPath);
+      
+      // Reload config and jobs after migration
+      if (result.success && result.migratedCount > 0) {
+        scheduler.loadConfig();
+        
+        // Reload job history
+        loadJobHistory();
+        
+        // Notify UI to refresh
+        if (mainWindow) {
+          mainWindow.webContents.send("migration:completed");
+          mainWindow.webContents.send("job:history:updated");
+        }
+      }
+      
+      return result;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      logger.error(`Migration failed: ${errorMsg}`);
+      return {
+        success: false,
+        message: `Migration failed: ${errorMsg}`,
+        migratedCount: 0,
+      };
+    }
+  });
+
+  // Dialog Handler for File/Folder Selection
+  ipcMain.handle("dialog:openFile", async (_event, options) => {
+    if (!mainWindow) return null;
+
+    const result = await dialog.showOpenDialog(mainWindow, options);
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return null;
+    }
+
+    return result.filePaths[0];
   });
 
   // Financial Years Handlers
@@ -1000,7 +1257,7 @@ app.whenReady().then(() => {
   setTimeout(() => {
     if (tray && process.platform === "win32") {
       tray.displayBalloon({
-        title: "SQL Bridge Started",
+        title: "Bridge Started",
         content:
           "Application is running. Find icon in system tray (bottom-right). Right-click to quit.",
         icon: nativeImage.createFromPath(

@@ -15,6 +15,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { toast } from "sonner"
 import { AdvancedScheduleSelector, generateCron, parseCronToConfig, type ScheduleConfig } from "@/components/AdvancedScheduleSelector"
 
+// @ts-ignore - Electron types
+const { ipcRenderer } = window.require('electron')
+
 interface Destination {
   type: string
   url?: string
@@ -234,14 +237,35 @@ function DestinationItem({ destination, onUpdate, onRemove }: DestinationItemPro
         <div className="space-y-4">
           <div>
             <Label htmlFor="excel-file-path">File Path *</Label>
-            <Input
-              id="excel-file-path"
-              placeholder="C:/exports/data.xlsx"
-              value={destination.filePath || ""}
-              onChange={(e) => handleFieldChange("filePath", e.target.value)}
-              required
-            />
-            <p className="text-sm text-gray-500">Full path where Excel file will be saved</p>
+            <div className="flex gap-2">
+              <Input
+                id="excel-file-path"
+                placeholder="C:/exports/data.xlsx"
+                value={destination.filePath || ""}
+                onChange={(e) => handleFieldChange("filePath", e.target.value)}
+                required
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  const path = await ipcRenderer.invoke('dialog:openFile', {
+                    title: 'Select Excel File or Folder',
+                    properties: ['openFile', 'openDirectory'],
+                    filters: [
+                      { name: 'Excel Files', extensions: ['xlsx', 'xls'] },
+                      { name: 'All Files', extensions: ['*'] }
+                    ]
+                  })
+                  if (path) {
+                    handleFieldChange("filePath", path)
+                  }
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap"
+              >
+                Browse
+              </button>
+            </div>
+            <p className="text-sm text-gray-500">Select file or folder location where Excel file will be saved</p>
           </div>
           <div>
             <Label htmlFor="excel-sheet-name">Sheet Name</Label>
@@ -274,14 +298,35 @@ function DestinationItem({ destination, onUpdate, onRemove }: DestinationItemPro
         <div className="space-y-4">
           <div>
             <Label htmlFor="csv-file-path">File Path *</Label>
-            <Input
-              id="csv-file-path"
-              placeholder="C:/exports/data.csv"
-              value={destination.filePath || ""}
-              onChange={(e) => handleFieldChange("filePath", e.target.value)}
-              required
-            />
-            <p className="text-sm text-gray-500">Full path where CSV file will be saved</p>
+            <div className="flex gap-2">
+              <Input
+                id="csv-file-path"
+                placeholder="C:/exports/data.csv"
+                value={destination.filePath || ""}
+                onChange={(e) => handleFieldChange("filePath", e.target.value)}
+                required
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  const path = await ipcRenderer.invoke('dialog:openFile', {
+                    title: 'Select CSV File or Folder',
+                    properties: ['openFile', 'openDirectory'],
+                    filters: [
+                      { name: 'CSV Files', extensions: ['csv'] },
+                      { name: 'All Files', extensions: ['*'] }
+                    ]
+                  })
+                  if (path) {
+                    handleFieldChange("filePath", path)
+                  }
+                }}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap"
+              >
+                Browse
+              </button>
+            </div>
+            <p className="text-sm text-gray-500">Select file or folder location where CSV file will be saved</p>
           </div>
           <div>
             <Label htmlFor="csv-delimiter">Delimiter</Label>

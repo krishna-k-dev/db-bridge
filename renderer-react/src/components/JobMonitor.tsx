@@ -44,6 +44,9 @@ const JobMonitor = () => {
     const [jobs, setJobs] = useState<Map<string, JobProgress>>(new Map())
     const [expanded, setExpanded] = useState<Set<string>>(new Set())
     const [panelOpen, setPanelOpen] = useState(false)
+    const [isDragging, setIsDragging] = useState(false)
+    const [position, setPosition] = useState({ x: 20, y: window.innerHeight - 500 })
+    const [dragStart, setDragStart] = useState({ x: 0, y: 0 })
     const navigate = useNavigate()
 
     // helper to clamp percentage to [0,100]
@@ -186,6 +189,47 @@ const JobMonitor = () => {
         }
     }, [])
 
+    // Drag handlers
+    const handleMouseDown = (e: React.MouseEvent) => {
+        setIsDragging(true)
+        setDragStart({
+            x: e.clientX - position.x,
+            y: e.clientY - position.y
+        })
+    }
+
+    useEffect(() => {
+        const handleMouseMove = (e: MouseEvent) => {
+            if (isDragging) {
+                const newX = e.clientX - dragStart.x
+                const newY = e.clientY - dragStart.y
+                
+                // Keep panel within viewport bounds
+                const maxX = window.innerWidth - 400 // panel width
+                const maxY = window.innerHeight - 100
+                
+                setPosition({
+                    x: Math.max(0, Math.min(newX, maxX)),
+                    y: Math.max(0, Math.min(newY, maxY))
+                })
+            }
+        }
+
+        const handleMouseUp = () => {
+            setIsDragging(false)
+        }
+
+        if (isDragging) {
+            document.addEventListener('mousemove', handleMouseMove)
+            document.addEventListener('mouseup', handleMouseUp)
+        }
+
+        return () => {
+            document.removeEventListener('mousemove', handleMouseMove)
+            document.removeEventListener('mouseup', handleMouseUp)
+        }
+    }, [isDragging, dragStart])
+
     const toggleExpanded = (jobId: string) => {
         setExpanded(prev => {
             const newSet = new Set(prev)
@@ -206,7 +250,7 @@ const JobMonitor = () => {
     return (
         <>
             {/* Floating Pill Button - Always visible at bottom-left */}
-            <div className="fixed bottom-4 left-4 z-50 flex flex-col items-start gap-2">
+            <div className="fixed bottom-4 left-4 z-[60] flex flex-col items-start gap-2">
                 <button
                     onClick={() => setPanelOpen(!panelOpen)}
                     className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-3 rounded-full shadow-lg hover:shadow-xl transition-all flex items-center gap-3 group"
@@ -235,9 +279,20 @@ const JobMonitor = () => {
 
             {/* Expandable Panel */}
             {panelOpen && (
-                <div className="fixed bottom-24 left-65 w-96 max-h-[500px] bg-white rounded-lg shadow-2xl border border-gray-200 z-40 flex flex-col">
-                    {/* Header */}
-                    <div className="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100 rounded-t-lg">
+                <div 
+                    className="fixed w-96 max-h-[500px] bg-white rounded-lg shadow-2xl border border-gray-200 z-[60] flex flex-col"
+                    style={{ 
+                        left: `${position.x}px`, 
+                        top: `${position.y}px`,
+                        opacity: isDragging ? 0.8 : 1,
+                        transition: isDragging ? 'none' : 'opacity 0.2s'
+                    }}
+                >
+                    {/* Header - Draggable */}
+                    <div 
+                        className="flex items-center justify-between p-4 border-b border-gray-200 bg-gradient-to-r from-gray-50 to-gray-100 rounded-t-lg cursor-move select-none"
+                        onMouseDown={handleMouseDown}
+                    >
                         <div className="flex items-center gap-2">
                             <Activity className="w-5 h-5 text-blue-600" />
                             <h3 className="font-semibold text-gray-900">Active Jobs</h3>
@@ -247,6 +302,7 @@ const JobMonitor = () => {
                             onClick={() => setPanelOpen(false)}
                             className="p-1 hover:bg-gray-200 rounded transition-colors"
                             title="Close"
+                            onMouseDown={(e) => e.stopPropagation()}
                         >
                             <X className="w-4 h-4 text-gray-600" />
                         </button>

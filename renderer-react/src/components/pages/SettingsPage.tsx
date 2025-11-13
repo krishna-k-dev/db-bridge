@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Plus, Edit, Trash2 } from 'lucide-react'
+import { Plus, Edit, Trash2, Database, Download, AlertCircle, CheckCircle2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -56,6 +56,10 @@ const SettingsPage = () => {
   const [testingProgress, setTestingProgress] = useState<{ [key: string]: 'pending' | 'testing' | 'success' | 'failed' }>({})
   const [showTestMonitor, setShowTestMonitor] = useState(false)
   const [allConnections, setAllConnections] = useState<any[]>([])
+  
+  // Migration states
+  const [oldDataInfo, setOldDataInfo] = useState<{ exists: boolean; oldPath: string | null; newPath: string | null; items: string[] } | null>(null)
+  const [isMigrating, setIsMigrating] = useState(false)
 
   useEffect(() => {
     loadFinancialYears()
@@ -65,6 +69,7 @@ const SettingsPage = () => {
     loadSystemUsers()
     loadWhatsappGroups()
     loadAppSettings()
+    checkOldData()
   }, [])
 
   // Sync formSettings when appSettings are loaded
@@ -170,6 +175,60 @@ const SettingsPage = () => {
       }
     } catch (error) {
       console.error('Failed to load app settings:', error)
+    }
+  }
+
+  const checkOldData = async () => {
+    try {
+      const result = await ipcRenderer.invoke('check-old-data')
+      setOldDataInfo(result)
+    } catch (error) {
+      console.error('Failed to check old data:', error)
+    }
+  }
+
+  const handleMigration = async (force = false) => {
+    setIsMigrating(true)
+    try {
+      const result = await ipcRenderer.invoke('migrate-old-data', force)
+      
+      if (result.success) {
+        toast.success(`✅ ${result.message}`, {
+          description: result.migratedItems?.length > 0 
+            ? `Migrated: ${result.migratedItems.join(', ')}`
+            : undefined,
+          duration: 5000
+        })
+        
+        // Refresh data
+        await checkOldData()
+        await loadFinancialYears()
+        await loadPartners()
+        await loadJobGroups()
+        await loadStores()
+        await loadSystemUsers()
+        await loadWhatsappGroups()
+        await loadAppSettings()
+        
+        // Show notification to restart app
+        setTimeout(() => {
+          toast.info('📢 Please refresh the page to see all migrated data', {
+            duration: 10000
+          })
+        }, 1000)
+      } else {
+        toast.error(result.message || 'Migration failed')
+      }
+      
+      if (result.errors && result.errors.length > 0) {
+        result.errors.forEach((err: string) => {
+          toast.error(err)
+        })
+      }
+    } catch (error: any) {
+      toast.error(`Migration failed: ${error.message}`)
+    } finally {
+      setIsMigrating(false)
     }
   }
 
@@ -647,6 +706,74 @@ const SettingsPage = () => {
 
       {/* Settings Content */}
       <div className="flex-1 overflow-auto p-6">
+        {/* Data Migration Section - Show if old data detected */}
+        {oldDataInfo?.exists && (
+          <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-200 p-6 mb-6">
+            <div className="flex items-start gap-4">
+              <div className="p-3 bg-blue-500 rounded-lg">
+                <Database className="w-6 h-6 text-white" />
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-semibold text-gray-900 mb-2 flex items-center gap-2">
+                  <AlertCircle className="w-5 h-5 text-blue-600" />
+                  Old "SQL Bridge" Data Detected
+                </h3>
+                <p className="text-gray-700 mb-3">
+                  We found data from your previous "SQL Bridge" installation. Would you like to migrate it to the new "Bridge" app?
+                </p>
+                <div className="bg-white rounded-lg p-4 mb-4 border border-blue-200">
+                  <p className="text-sm font-medium text-gray-700 mb-2">📦 Available to migrate:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {oldDataInfo.items.map(item => (
+                      <span key={item} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-3 text-xs text-gray-600 space-y-1">
+                    <p><strong>From:</strong> {oldDataInfo.oldPath}</p>
+                    <p><strong>To:</strong> {oldDataInfo.newPath}</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <Button
+                    onClick={() => handleMigration(false)}
+                    disabled={isMigrating}
+                    className="bg-blue-600 hover:bg-blue-700"
+                  >
+                    {isMigrating ? (
+                      <>
+                        <span className="animate-spin mr-2">⏳</span>
+                        Migrating...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="w-4 h-4 mr-2" />
+                        Migrate Now
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    onClick={() => setOldDataInfo({ ...oldDataInfo, exists: false })}
+                    variant="outline"
+                    disabled={isMigrating}
+                  >
+                    Remind Me Later
+                  </Button>
+                  <Button
+                    onClick={() => setOldDataInfo({ exists: false, oldPath: null, newPath: null, items: [] })}
+                    variant="ghost"
+                    disabled={isMigrating}
+                    className="text-gray-600"
+                  >
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Application Settings Section */}
         <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Application Settings</h3>
@@ -942,6 +1069,81 @@ const SettingsPage = () => {
                   <p className="text-sm text-gray-600">
                     Manually trigger a connection test and send notifications immediately
                   </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Data Management Section */}
+            <div className="border-b pb-4">
+              <h4 className="text-md font-medium text-gray-800 mb-3">Data Management</h4>
+              <div className="space-y-4">
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <Database className="w-5 h-5 text-blue-600 mt-0.5" />
+                    <div className="flex-1">
+                      <h5 className="font-medium text-gray-900 mb-1">Import from Old "SQL Bridge" Version</h5>
+                      <p className="text-sm text-gray-600 mb-3">
+                        If you have data from the previous "SQL Bridge" application, you can import it here. 
+                        This will copy your jobs, connections, settings, and logs to the new "Bridge" app.
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => checkOldData()}
+                        disabled={isMigrating}
+                        className="w-full md:w-auto"
+                      >
+                        <Download className="w-4 h-4 mr-2" />
+                        {isMigrating ? 'Checking...' : 'Check & Import Old Data'}
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  {/* Show detected info if available */}
+                  {oldDataInfo?.exists && (
+                    <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+                      <div className="flex items-start gap-3">
+                        <CheckCircle2 className="w-5 h-5 text-green-600 mt-0.5" />
+                        <div className="flex-1">
+                          <h5 className="font-medium text-gray-900 mb-2">✅ Old Data Found!</h5>
+                          <p className="text-sm text-gray-700 mb-2">
+                            <strong>Location:</strong> {oldDataInfo.oldPath}
+                          </p>
+                          <p className="text-sm text-gray-700 mb-3">
+                            <strong>Items found:</strong> {oldDataInfo.items.join(', ')}
+                          </p>
+                          <Button
+                            type="button"
+                            onClick={() => handleMigration(false)}
+                            disabled={isMigrating}
+                            className="bg-green-600 hover:bg-green-700"
+                          >
+                            {isMigrating ? (
+                              <>
+                                <span className="animate-spin mr-2">⏳</span>
+                                Importing...
+                              </>
+                            ) : (
+                              <>
+                                <Download className="w-4 h-4 mr-2" />
+                                Import Now
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Show if no data found */}
+                  {oldDataInfo && !oldDataInfo.exists && (
+                    <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                      <p className="text-sm text-gray-600">
+                        ℹ️ No old "SQL Bridge" data detected. If you have data in a custom location, 
+                        please check the logs for searched paths.
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

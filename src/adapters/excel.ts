@@ -117,8 +117,11 @@ export class ExcelAdapter implements DestinationAdapter {
           for (const [queryName, queryData] of Object.entries(queryResults)) {
             // Sheet name format based on settings
             // If multiQueryUseQueryNameOnly is true, use only query name; otherwise use "ConnectionName - QueryName"
-            const useQueryNameOnly = meta.settings?.multiQueryUseQueryNameOnly === true;
-            let sheetName = useQueryNameOnly ? queryName : `${baseSheetName} - ${queryName}`;
+            const useQueryNameOnly =
+              meta.settings?.multiQueryUseQueryNameOnly === true;
+            let sheetName = useQueryNameOnly
+              ? queryName
+              : `${baseSheetName} - ${queryName}`;
             sheetName = this.sanitizeSheetName(sheetName);
 
             let sheetData: any[];

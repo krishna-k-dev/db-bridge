@@ -2,6 +2,7 @@
 // This runs WITHOUT UI - pure backend service
 import { app } from "electron";
 import * as path from "path";
+import * as fs from "fs";
 import { JobScheduler } from "./core/scheduler";
 import { logger } from "./core/logger";
 
@@ -14,10 +15,68 @@ app.on("window-all-closed", () => {
   logger.info("Windows closed - continuing to run in background");
 });
 
+// Migrate old "SQL Bridge" data to new "Bridge" directory
+function migrateOldData() {
+  try {
+    const oldAppName = "SQL Bridge";
+    const newUserDataPath = app.getPath("userData");
+
+    // Get old userData path
+    const oldUserDataPath = newUserDataPath.replace(/Bridge$/i, oldAppName);
+
+    logger.info(`Service checking for old data at: ${oldUserDataPath}`);
+
+    // If old directory exists and new directory is different
+    if (fs.existsSync(oldUserDataPath) && oldUserDataPath !== newUserDataPath) {
+      logger.info("Service found old SQL Bridge data, migrating...");
+
+      const itemsToMigrate = [
+        "config",
+        "logs",
+        "job-history.json",
+        "settings.json",
+      ];
+      let migratedCount = 0;
+
+      itemsToMigrate.forEach((item) => {
+        const oldPath = path.join(oldUserDataPath, item);
+        const newPath = path.join(newUserDataPath, item);
+
+        if (fs.existsSync(oldPath) && !fs.existsSync(newPath)) {
+          try {
+            if (fs.statSync(oldPath).isDirectory()) {
+              fs.cpSync(oldPath, newPath, { recursive: true });
+            } else {
+              fs.copyFileSync(oldPath, newPath);
+            }
+            migratedCount++;
+          } catch (err) {
+            logger.error(
+              `Service migration failed for ${item}: ${
+                err instanceof Error ? err.message : String(err)
+              }`
+            );
+          }
+        }
+      });
+
+      if (migratedCount > 0) {
+        logger.info(`✅ Service migrated ${migratedCount} items successfully`);
+      }
+    }
+  } catch (error) {
+    logger.error(
+      `Service migration error: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+  }
+}
+
 async function startBackgroundService() {
   try {
     logger.info("=".repeat(60));
-    logger.info("SQL BRIDGE BACKGROUND SERVICE STARTING");
+    logger.info("BRIDGE BACKGROUND SERVICE STARTING");
     logger.info("=".repeat(60));
     logger.info(`Environment: ${process.env.NODE_ENV || "production"}`);
     logger.info(`Working Directory: ${process.cwd()}`);
@@ -43,7 +102,7 @@ async function startBackgroundService() {
     scheduler.startConnectionTestScheduler();
 
     logger.info("=".repeat(60));
-    logger.info("✅ SQL BRIDGE SERVICE STARTED SUCCESSFULLY");
+    logger.info("✅ BRIDGE SERVICE STARTED SUCCESSFULLY");
     logger.info("=".repeat(60));
     logger.info("Service is now running in background...");
     logger.info("Jobs will execute according to their schedules");
@@ -58,6 +117,10 @@ async function startBackgroundService() {
 
 // Wait for Electron to be ready
 app.whenReady().then(() => {
+  // Migrate old data first
+  migrateOldData();
+
+  // Start service
   startBackgroundService();
 });
 
@@ -79,7 +142,7 @@ process.on("unhandledRejection", (reason, promise) => {
 // Log when service is terminating
 app.on("will-quit", () => {
   logger.info("Service is shutting down...");
-  console.log("🛑 SQL Bridge Service shutting down...");
+  console.log("🛑 Bridge Service shutting down...");
 });
 
 export {};

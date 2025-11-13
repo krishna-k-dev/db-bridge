@@ -1,6 +1,6 @@
 {
-  "name": "sql-bridge-app",
-  "version": "2.4.0",
+  "name": "bridge-app",
+  "version": "3.0.0",
   "description": "Desktop app to bridge local SQL Server data to any destination (webhooks, Google Sheets, APIs)",
   "main": "dist/main.js",
   "scripts": {
@@ -62,7 +62,7 @@
   },
   "build": {
     "appId": "com.sqlbridge.app",
-    "productName": "SQL Bridge",
+    "productName": "Bridge",
     "directories": {
       "output": "release"
     },
@@ -94,7 +94,7 @@
       "icon": "build/icon.ico",
       "target": "portable",
       "publisherName": "Krishna Kumar",
-      "certificateFile": "C:/Users/user/Desktop/cert/KrishnaKumar_Cert.pfx",
+      "certificateFile": "C:/Users/Administrator/Desktop/cert/KrishnaKumar_Cert.pfx",
       "certificatePassword": "krishna@123"
     }
   }

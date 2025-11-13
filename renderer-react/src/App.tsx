@@ -3,7 +3,10 @@ import './App.css'
 import TitleBar from './components/layout/TitleBar'
 import Sidebar from '@/components/layout/Sidebar'
 import ConnectionsPage from './components/pages/ConnectionsPage'
+import ConnectionsDashboard from '@/components/pages/ConnectionsDashboard'
 import JobsPage from '@/components/pages/JobsPage'
+import SingleQueryJobsPage from '@/components/pages/SingleQueryJobsPage'
+import MultiQueryJobsPage from '@/components/pages/MultiQueryJobsPage'
 import LogsPage from '@/components/pages/LogsPage'
 import SettingsPage from '@/components/pages/SettingsPage'
 import MonitoringPage from '@/components/pages/MonitoringPage'
@@ -36,11 +39,15 @@ function App() {
           />
           <main className="flex-1 overflow-auto bg-gray-50 md:ml-0">
             <Routes>
-              <Route path="/" element={<ConnectionsPage onCountChange={setConnectionsCount} />} />
-              <Route path="/connections" element={<ConnectionsPage onCountChange={setConnectionsCount} />} />
+              <Route path="/" element={<ConnectionsDashboard onCountChange={setConnectionsCount} />} />
+              <Route path="/connections" element={<ConnectionsDashboard onCountChange={setConnectionsCount} />} />
+              <Route path="/connections/self" element={<ConnectionsPage onCountChange={setConnectionsCount} />} />
+              <Route path="/connections/partner" element={<ConnectionsPage onCountChange={setConnectionsCount} />} />
               <Route path="/connections/create" element={<CreateConnectionForm onConnectionCreated={() => setConnectionsCount(c => c + 1)} />} />
               <Route path="/connections/:id/edit" element={<EditConnectionForm onConnectionUpdated={() => {}} />} />
               <Route path="/jobs" element={<JobsPage onCountChange={setJobsCount} />} />
+              <Route path="/jobs/single" element={<SingleQueryJobsPage onCountChange={setJobsCount} />} />
+              <Route path="/jobs/multi-query" element={<MultiQueryJobsPage onCountChange={setJobsCount} />} />
               <Route path="/jobs/create" element={<CreateJobForm onJobCreated={() => setJobsCount(c => c + 1)} />} />
               <Route path="/jobs/:id/edit" element={<EditJobForm onJobUpdated={() => setJobsCount(c => c + 1)} />} />
               <Route path="/logs" element={<LogsPage />} />
