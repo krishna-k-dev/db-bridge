@@ -178,6 +178,7 @@ const ConnectionsPage = ({ onCountChange }: ConnectionsPageProps) => {
         setDeleteConnectionId(null)
       }
     } catch (error: any) {
+      console.error('Delete connection error:', error)
       toast.error(error?.message || 'Failed to delete connection')
       setDeleteConnectionId(null)
     }

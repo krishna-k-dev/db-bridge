@@ -695,16 +695,25 @@ export class JobScheduler {
   }
 
   deleteConnection(connectionId: string): void {
-    // Check if any jobs are using this connection
+    // Find all jobs using this connection
     const jobsUsingConnection = this.jobs.filter(
       (j) => j.connectionId === connectionId
     );
 
     if (jobsUsingConnection.length > 0) {
       const jobNames = jobsUsingConnection.map(j => `"${j.name}"`).join(", ");
-      throw new Error(
-        `Cannot delete connection. ${jobsUsingConnection.length} job(s) are using it: ${jobNames}`
+      logger.info(
+        `Connection is used by ${jobsUsingConnection.length} job(s): ${jobNames}. Removing connection from these jobs...`
       );
+      
+      // Remove this connection from all jobs using it (set connectionId to empty or undefined)
+      jobsUsingConnection.forEach(job => {
+        job.connectionId = undefined as any; // Remove connection reference
+        logger.info(`Removed connection from job: "${job.name}"`);
+      });
+      
+      // Save config after updating jobs
+      this.saveConfig();
     }
 
     const index = this.connections.findIndex((c) => c.id === connectionId);
@@ -1852,9 +1861,25 @@ export class JobScheduler {
     });
 
     message += "--------------------------------\n";
-    const passedCount = results.filter((r) => r.status === "success").length;
-    const failedCount = results.filter((r) => r.status === "failed").length;
-    message += `🟢 *Message:* ${passedCount} passed, ${failedCount} failed at ${timeStr}`;
+    
+    // Build summary based on checkbox settings
+    const passedCount = uniqueResults.filter((r) => r.status === "success").length;
+    const failedCount = uniqueResults.filter((r) => r.status === "failed").length;
+    
+    let summaryParts: string[] = [];
+    if (showPassed) {
+      summaryParts.push(`${passedCount} passed`);
+    }
+    if (showFailed) {
+      summaryParts.push(`${failedCount} failed`);
+    }
+    
+    // If both unchecked, show failed (safety fallback)
+    if (summaryParts.length === 0) {
+      summaryParts.push(`${failedCount} failed`);
+    }
+    
+    message += `🟢 *Message:* ${summaryParts.join(', ')} at ${timeStr}`;
 
     // Send based on sendTo configuration - to ALL system users or ALL groups
     if (sendTo === "number") {
