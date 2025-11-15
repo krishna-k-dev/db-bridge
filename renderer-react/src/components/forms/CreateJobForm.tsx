@@ -249,8 +249,8 @@ function DestinationItem({ destination, onUpdate, onRemove }: DestinationItemPro
                 type="button"
                 onClick={async () => {
                   const path = await ipcRenderer.invoke('dialog:openFile', {
-                    title: 'Select Excel File or Folder',
-                    properties: ['openFile', 'openDirectory'],
+                    title: 'Select Excel File',
+                    properties: ['openFile', 'createDirectory'],
                     filters: [
                       { name: 'Excel Files', extensions: ['xlsx', 'xls'] },
                       { name: 'All Files', extensions: ['*'] }
@@ -260,9 +260,24 @@ function DestinationItem({ destination, onUpdate, onRemove }: DestinationItemPro
                     handleFieldChange("filePath", path)
                   }
                 }}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap"
+                className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap text-sm"
               >
-                Browse
+                Browse File
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const path = await ipcRenderer.invoke('dialog:openFile', {
+                    title: 'Select Folder',
+                    properties: ['openDirectory', 'createDirectory']
+                  })
+                  if (path) {
+                    handleFieldChange("filePath", path)
+                  }
+                }}
+                className="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 whitespace-nowrap text-sm"
+              >
+                Browse Folder
               </button>
             </div>
             <p className="text-sm text-gray-500">Select file or folder location where Excel file will be saved</p>
@@ -310,8 +325,8 @@ function DestinationItem({ destination, onUpdate, onRemove }: DestinationItemPro
                 type="button"
                 onClick={async () => {
                   const path = await ipcRenderer.invoke('dialog:openFile', {
-                    title: 'Select CSV File or Folder',
-                    properties: ['openFile', 'openDirectory'],
+                    title: 'Select CSV File',
+                    properties: ['openFile', 'createDirectory'],
                     filters: [
                       { name: 'CSV Files', extensions: ['csv'] },
                       { name: 'All Files', extensions: ['*'] }
@@ -321,9 +336,24 @@ function DestinationItem({ destination, onUpdate, onRemove }: DestinationItemPro
                     handleFieldChange("filePath", path)
                   }
                 }}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap"
+                className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap text-sm"
               >
-                Browse
+                Browse File
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const path = await ipcRenderer.invoke('dialog:openFile', {
+                    title: 'Select Folder',
+                    properties: ['openDirectory', 'createDirectory']
+                  })
+                  if (path) {
+                    handleFieldChange("filePath", path)
+                  }
+                }}
+                className="px-3 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 whitespace-nowrap text-sm"
+              >
+                Browse Folder
               </button>
             </div>
             <p className="text-sm text-gray-500">Select file or folder location where CSV file will be saved</p>
