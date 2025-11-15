@@ -69,12 +69,23 @@ export class ExcelAdapter implements DestinationAdapter {
       let workbook: XLSX.WorkBook;
 
       // Handle mode
-      if (mode === "append" && fs.existsSync(actualFilePath)) {
-        // Append mode: Read existing file
+      if (fs.existsSync(actualFilePath)) {
+        // If file exists, read it to preserve other sheets
         workbook = XLSX.readFile(actualFilePath);
+        
+        // If replace mode, we'll replace matching sheets but keep others
+        // If append mode, we'll append to matching sheets
+        logger.info(
+          `[Excel Adapter] Existing file found. Mode: ${mode}. Preserving non-matching sheets.`,
+          meta.jobId
+        );
       } else {
-        // Replace mode: Create new workbook (overwrites old file)
+        // File doesn't exist: Create new workbook
         workbook = XLSX.utils.book_new();
+        logger.info(
+          `[Excel Adapter] Creating new workbook: ${actualFilePath}`,
+          meta.jobId
+        );
       }
 
       // Create sheets for each connection and query
