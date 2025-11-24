@@ -55,21 +55,20 @@ export class JobExecutor {
       "Executing queries on connections"
     );
 
-    // HYBRID BATCHING: Initialize buffer for streaming destinations
-    const streamingDestinationTypes = [
-      "google_sheets",
-      "webhook",
-      "custom_api",
-    ];
+    // HYBRID BATCHING: Initialize buffer ONLY for Google Sheets (incremental streaming)
+    // Custom API and Webhook will send ONCE after all queries complete
+    const streamingDestinationTypes = ["google_sheets"];
     const hasStreamingDestinations = job.destinations.some((d) =>
       streamingDestinationTypes.includes(d.type)
     );
 
     // Start buffering if streaming destinations exist
     if (hasStreamingDestinations) {
+      // Provide settings to buffer so adapters (in flush) can enrich payloads
+      this.dataBuffer.setSettings(this.settings);
       this.dataBuffer.startBuffering(job.id, job);
       logger.info(
-        `📦 Hybrid batching enabled: Data will be sent every 5 seconds or when buffer reaches 100 rows`,
+        `📦 Hybrid batching enabled for Google Sheets: Data will be sent every 10 seconds or when buffer reaches 150 rows`,
         job.id
       );
     }
@@ -148,10 +147,11 @@ export class JobExecutor {
 
         dataWithMeta.push({ connection, data, queryResults });
 
-        // HYBRID BATCHING: Add data to buffer (will auto-flush every 5s or at 100 rows)
+        // HYBRID BATCHING: Add data to buffer ONLY for Google Sheets
+        // Custom API and Webhook will send once after all queries complete
         if (hasStreamingDestinations && data.length > 0) {
           this.progressStream.updateConnectionProgress(job.id, connection.id, {
-            step: "Buffering data for batch transfer",
+            step: "Buffering data for Google Sheets",
           });
 
           await this.dataBuffer.addToBuffer(job.id, job, connection, data);
@@ -209,21 +209,17 @@ export class JobExecutor {
 
     // Send to all destinations with smart handling
     for (const destination of job.destinations) {
-      // If this destination is a streaming type and hybrid batching is enabled,
-      // we rely on DataBuffer to send data. Skip direct sending to avoid
-      // duplicate transfers.
-      const streamingDestinationTypes = [
-        "google_sheets",
-        "webhook",
-        "custom_api",
-      ];
+      // If this destination is Google Sheets and hybrid batching is enabled,
+      // we rely on DataBuffer to send data incrementally. Skip direct sending.
+      // Custom API and Webhook will send directly ONCE after all queries complete.
+      const streamingDestinationTypes = ["google_sheets"];
 
       if (
         hasStreamingDestinations &&
         streamingDestinationTypes.includes(destination.type)
       ) {
         logger.info(
-          `Skipping direct send for streaming destination ${destination.type} because hybrid batching is enabled`,
+          `Skipping direct send for ${destination.type} because hybrid batching is enabled`,
           job.id
         );
         continue;
@@ -243,35 +239,16 @@ export class JobExecutor {
       );
 
       try {
-        // FORCE multi-connection - check multiple ways
+        // Use multi-connection send method
         const adapterAny = adapter as any;
-        let sendMultiConn = adapterAny.sendMultiConnection;
-
-        // Debug logging
-        logger.info(
-          `🔍 DEBUG: Checking ${
-            destination.type
-          } - has sendMultiConnection: ${typeof sendMultiConn}`,
-          job.id
-        );
-        logger.info(
-          `🔍 DEBUG: Adapter keys: ${Object.keys(adapterAny).join(", ")}`,
-          job.id
-        );
+        const sendMultiConn = adapterAny.sendMultiConnection;
 
         if (typeof sendMultiConn === "function") {
-          // MULTI-CONNECTION MODE
+          // Send all connections data in one call
           logger.info(
-            `✅ MULTI-CONNECTION MODE for ${destination.type} with ${dataWithMeta.length} connection(s)`,
+            `Sending ${dataWithMeta.length} connection(s) to ${destination.type}`,
             job.id
           );
-
-          logger.info(`[Executor] Calling adapter with settings`, job.id, {
-            adapterName: adapter.name,
-            hasSettings: !!this.settings,
-            sheetNameFormat: this.settings?.sheetNameFormat,
-            allSettings: this.settings,
-          });
 
           const result = await sendMultiConn.call(
             adapter,
@@ -292,18 +269,12 @@ export class JobExecutor {
             logger.error(result.message, job.id, result.error);
           }
         } else {
-          // FALLBACK MODE
-          logger.warn(
-            `⚠️ Adapter ${
-              destination.type
-            } does NOT have sendMultiConnection method! Type: ${typeof sendMultiConn}`,
+          // Adapter doesn't support multi-connection, send each separately
+          logger.info(
+            `Adapter ${destination.type} doesn't support multi-connection, sending separately`,
             job.id
           );
-          logger.warn(
-            `⚠️ Falling back to separate sends for each connection`,
-            job.id
-          );
-          // Fallback: Send each connection separately
+          
           for (const { connection, data } of dataWithMeta) {
             // Check if we should trigger based on data
             if (!shouldTrigger(job, data)) {
@@ -321,7 +292,7 @@ export class JobExecutor {
               runTime: job.lastRun,
               rowCount: data.length,
               connectionId: connection.id,
-              connectionName: connection.database || connection.name, // Use database name
+              connectionName: connection.database || connection.name,
               settings: this.settings,
               financialYear: connection.financialYear || "",
               group: connection.group || "self",

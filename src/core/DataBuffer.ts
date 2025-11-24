@@ -48,6 +48,7 @@ export class DataBuffer {
     "buffer-backup"
   );
   private jobId: string = "";
+  private settings: any = undefined;
 
   private constructor() {
     this.ensureBackupDir();
@@ -58,6 +59,13 @@ export class DataBuffer {
       DataBuffer.instance = new DataBuffer();
     }
     return DataBuffer.instance;
+  }
+
+  /**
+   * Update settings reference so adapters can enrich payloads (e.g., resolve store names)
+   */
+  public setSettings(settings: any): void {
+    this.settings = settings || {};
   }
 
   /**
@@ -78,12 +86,9 @@ export class DataBuffer {
     // Clear any existing buffers for this job
     this.buffers.clear();
 
-    // Initialize buffers for streaming destinations
-    const streamingDestinationTypes = [
-      "google_sheets",
-      "webhook",
-      "custom_api",
-    ];
+    // Initialize buffers ONLY for Google Sheets (incremental streaming)
+    // Custom API and Webhook are handled directly by executor (single send after all queries)
+    const streamingDestinationTypes = ["google_sheets"];
 
     for (const destination of job.destinations) {
       if (streamingDestinationTypes.includes(destination.type)) {
@@ -97,11 +102,11 @@ export class DataBuffer {
       }
     }
 
-    // Start auto-flush timer (every 5 seconds)
+    // Start auto-flush timer (every 10 seconds)
     this.startAutoFlush();
 
     logger.info(
-      `📦 Buffer initialized for ${this.buffers.size} streaming destination(s)`,
+      `📦 Buffer initialized for ${this.buffers.size} streaming destination(s) (Google Sheets only)`,
       jobId
     );
   }
@@ -163,11 +168,8 @@ export class DataBuffer {
         (connection as any).connectionFailedMessage || "",
     } as any;
 
-    const streamingDestinationTypes = [
-      "google_sheets",
-      "webhook",
-      "custom_api",
-    ];
+    // ONLY buffer for Google Sheets - Custom API and Webhook are handled by executor
+    const streamingDestinationTypes = ["google_sheets"];
 
     for (const destination of job.destinations) {
       if (!streamingDestinationTypes.includes(destination.type)) continue;
@@ -205,7 +207,7 @@ export class DataBuffer {
   }
 
   /**
-   * Start auto-flush timer (every 5 seconds)
+   * Start auto-flush timer (every 10 seconds)
    */
   private startAutoFlush(): void {
     if (this.flushInterval) {
@@ -307,6 +309,7 @@ export class DataBuffer {
                 jobId: jobId,
                 jobName: (itemsToFlush[0]?.meta as any)?.jobName || "",
                 runTime: (itemsToFlush[0]?.meta as any)?.runTime || new Date(),
+                settings: this.settings,
               }
             );
 

@@ -4,8 +4,45 @@ import {
   CustomAPIDestination,
   JobMeta,
   SendResult,
+  Store,
 } from "../types";
 import { logger } from "../core/logger";
+
+// Helper: stable stringify for objects to generate a deterministic key
+function stableStringify(obj: any): string {
+  if (obj === null || typeof obj !== "object") return String(obj);
+  if (Array.isArray(obj)) return `[${obj.map(stableStringify).join(",")}]`;
+  const keys = Object.keys(obj).sort();
+  const entries = keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`);
+  return `{${entries.join(",")}}`;
+}
+
+// Helper: de-duplicate rows within a single job run
+function dedupeRows<T = any>(rows: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const r of rows || []) {
+    const key = stableStringify(r);
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(r);
+    }
+  }
+  return out;
+}
+
+// Helper: resolve store info (short name -> full name) from settings
+function resolveStoreInfo(connection: any, settings?: { stores?: Store[] }) {
+  const storeShortName = connection?.store || "";
+  let storeName = "";
+  if (storeShortName && settings?.stores && Array.isArray(settings.stores)) {
+    const match = settings.stores.find(
+      (s) => s.shortName?.toLowerCase() === String(storeShortName).toLowerCase()
+    );
+    storeName = match?.name || "";
+  }
+  return { storeShortName, storeName };
+}
 
 export class CustomAPIAdapter implements DestinationAdapter {
   name = "custom_api";
@@ -28,28 +65,37 @@ export class CustomAPIAdapter implements DestinationAdapter {
 
       // Combine all data into one array with connection name (MUST) and other metadata
       const combinedPayload = dataWithMeta.map(
-        ({ connection, data, connectionFailedMessage }) => ({
-          connectionName: connection.name, // Connection name
-          connectionId: connection.id, // Connection ID
-          database: connection.database, // Database name
-          server: connection.server, // Server name
-          financialYear: connection.financialYear || "", // Financial Year
-          group: connection.group || "self", // Group (self/partner)
-          partner:
-            connection.group === "partner" ? connection.partner || "" : "", // Partner name if group is partner
-          // Job metadata
-          jobName: meta.jobName,
-          jobGroup: (meta as any).jobGroup || "",
-          rowCount: data.length, // Row count for this connection
-          connectionFailedMessage: connectionFailedMessage || "", // Connection failed message
-          // System Info - Users for WhatsApp notifications
-          systemUsers: systemUsers.map((user: any) => ({
-            name: user.name,
-            number: user.number,
-            group: user.group,
-          })),
-          data: data, // Actual data array
-        })
+        ({ connection, data, connectionFailedMessage }) => {
+          const deduped = dedupeRows(data);
+          const { storeShortName, storeName } = resolveStoreInfo(
+            connection,
+            meta.settings
+          );
+          return {
+            connectionName: connection.name, // Connection name
+            connectionId: connection.id, // Connection ID
+            database: connection.database, // Database name
+            server: connection.server, // Server name
+            financialYear: connection.financialYear || "", // Financial Year
+            group: connection.group || "self", // Group (self/partner)
+            partner:
+              connection.group === "partner" ? connection.partner || "" : "", // Partner name if group is partner
+            storeShortName,
+            storeName,
+            // Job metadata
+            jobName: meta.jobName,
+            jobGroup: (meta as any).jobGroup || "",
+            rowCount: deduped.length, // Row count for this connection
+            connectionFailedMessage: connectionFailedMessage || "", // Connection failed message
+            // System Info - Users for WhatsApp notifications
+            systemUsers: systemUsers.map((user: any) => ({
+              name: user.name,
+              number: user.number,
+              group: user.group,
+            })),
+            data: deduped, // Actual data array (deduped)
+          };
+        }
       );
 
       await axios({
@@ -60,10 +106,7 @@ export class CustomAPIAdapter implements DestinationAdapter {
         timeout: 30000,
       });
 
-      const totalRows = dataWithMeta.reduce(
-        (sum, item) => sum + item.data.length,
-        0
-      );
+      const totalRows = combinedPayload.reduce((sum, item: any) => sum + (item.rowCount || 0), 0);
 
       logger.info(
         `Custom API sent: ${totalRows} rows from ${dataWithMeta.length} connections`,
@@ -95,14 +138,20 @@ export class CustomAPIAdapter implements DestinationAdapter {
   ): Promise<SendResult> {
     try {
       const method = config.method || "POST";
-      const batchSize = config.batchSize || data.length;
+      // De-duplicate entire data set once per send call
+      const dedupedData = dedupeRows(data);
+      const batchSize = config.batchSize || dedupedData.length;
 
       // Send in batches if needed
-      for (let i = 0; i < data.length; i += batchSize) {
-        const batch = data.slice(i, i + batchSize);
+      for (let i = 0; i < dedupedData.length; i += batchSize) {
+        const batch = dedupedData.slice(i, i + batchSize);
 
         // Get system users from settings
         const systemUsers = (meta as any).settings?.systemUsers || [];
+        const { storeShortName, storeName } = resolveStoreInfo(
+          (meta as any),
+          (meta as any).settings
+        );
 
         await axios({
           method,
@@ -115,6 +164,8 @@ export class CustomAPIAdapter implements DestinationAdapter {
             financialYear: (meta as any).financialYear || "",
             group: (meta as any).group || "self",
             partner: (meta as any).partner || "",
+            storeShortName,
+            storeName,
             // Job metadata
             jobName: meta.jobName || "",
             jobGroup: (meta as any).jobGroup || "",
@@ -144,7 +195,7 @@ export class CustomAPIAdapter implements DestinationAdapter {
 
       return {
         success: true,
-        message: `Sent ${data.length} rows to ${config.url}`,
+        message: `Sent ${dedupedData.length} rows to ${config.url}`,
       };
     } catch (error: any) {
       logger.error("Custom API send failed", meta.jobId, error.message);
