@@ -1159,6 +1159,21 @@ app.whenReady().then(() => {
     }
   });
 
+  ipcMain.handle("cancel-job", (_event, jobId: string) => {
+    try {
+      const success = progressStream.cancelJob(jobId);
+      if (success) {
+        logger.info(`Job cancellation requested: ${jobId}`);
+        return { success: true, message: "Cancellation requested" };
+      } else {
+        return { success: false, message: "Job not found or not running" };
+      }
+    } catch (error: any) {
+      logger.error("Failed to cancel job", undefined, error);
+      return { success: false, error: error.message };
+    }
+  });
+
   // Window Control Handlers
   ipcMain.handle("minimize-window", () => {
     if (mainWindow) {

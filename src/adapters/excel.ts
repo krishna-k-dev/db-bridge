@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import * as fs from "fs";
 import * as path from "path";
 import { DestinationAdapter, JobMeta, SendResult } from "../types";
@@ -8,13 +8,12 @@ export interface ExcelDestination {
   type: "excel";
   filePath: string;
   sheetName?: string;
-  mode?: "append" | "replace"; // append: add to existing, replace: overwrite file
+  mode?: "replace" | "append";
 }
 
 export class ExcelAdapter implements DestinationAdapter {
   name = "excel";
 
-  // Multi-connection support: Create multiple sheets in one file
   async sendMultiConnection(
     dataWithMeta: Array<{
       connection: any;
@@ -66,22 +65,18 @@ export class ExcelAdapter implements DestinationAdapter {
         fs.mkdirSync(dir, { recursive: true });
       }
 
-      let workbook: XLSX.WorkBook;
+      const workbook = new ExcelJS.Workbook();
+      let existingFile = false;
 
-      // Handle mode
+      // Load existing file if it exists
       if (fs.existsSync(actualFilePath)) {
-        // If file exists, read it to preserve other sheets
-        workbook = XLSX.readFile(actualFilePath);
-        
-        // If replace mode, we'll replace matching sheets but keep others
-        // If append mode, we'll append to matching sheets
+        existingFile = true;
+        await workbook.xlsx.readFile(actualFilePath);
         logger.info(
-          `[Excel Adapter] Existing file found. Mode: ${mode}. Preserving non-matching sheets.`,
+          `[Excel Adapter] Existing file found with ${workbook.worksheets.length} sheets. Mode: ${mode}`,
           meta.jobId
         );
       } else {
-        // File doesn't exist: Create new workbook
-        workbook = XLSX.utils.book_new();
         logger.info(
           `[Excel Adapter] Creating new workbook: ${actualFilePath}`,
           meta.jobId
@@ -90,50 +85,30 @@ export class ExcelAdapter implements DestinationAdapter {
 
       // Create sheets for each connection and query
       let totalRows = 0;
+      const sheetsToUpdate = new Set<string>(); // Track which sheets we will touch
+
+      // Collect all data with sheet names
+      const sheetDataMap = new Map<string, any[]>();
+
       for (const {
         connection,
         data,
         queryResults,
         connectionFailedMessage,
       } of dataWithMeta) {
-        // Determine base sheet name from connection
         const format = meta.settings?.sheetNameFormat || "databaseName";
-        logger.info(
-          `[Excel Adapter] Sheet name format: ${format}`,
-          meta.jobId,
-          {
-            format,
-            hasSettings: !!meta.settings,
-            sheetNameFormat: meta.settings?.sheetNameFormat,
-            connectionName: connection.name,
-            connectionDatabase: connection.database,
-            connectionStore: connection.store,
-          }
-        );
         let baseSheetName = this.getSheetName(connection, format);
-        logger.info(
-          `[Excel Adapter] Generated base sheet name: ${baseSheetName}`,
-          meta.jobId
-        );
 
         // Handle multi-query: create separate sheets for each query
         if (queryResults && Object.keys(queryResults).length > 0) {
-          logger.info(
-            `[Excel Adapter] Multi-query mode: ${
-              Object.keys(queryResults).length
-            } queries`,
-            meta.jobId
-          );
-
           for (const [queryName, queryData] of Object.entries(queryResults)) {
-            // Sheet name format based on settings
-            // If multiQueryUseQueryNameOnly is true, use only query name; otherwise use "ConnectionName - QueryName"
             const useQueryNameOnly =
               meta.settings?.multiQueryUseQueryNameOnly === true;
             let sheetName = useQueryNameOnly
               ? queryName
               : `${baseSheetName} - ${queryName}`;
             sheetName = this.sanitizeSheetName(sheetName);
+            sheetsToUpdate.add(sheetName);
 
             let sheetData: any[];
             if (connectionFailedMessage) {
@@ -149,39 +124,13 @@ export class ExcelAdapter implements DestinationAdapter {
               sheetData = queryData as any[];
             }
 
-            // In append mode, merge with existing sheet if it exists
-            if (mode === "append" && workbook.SheetNames.includes(sheetName)) {
-              const existingSheet = workbook.Sheets[sheetName];
-              const existingData = XLSX.utils.sheet_to_json(existingSheet);
-              const mergedData = [...existingData, ...sheetData];
-
-              delete workbook.Sheets[sheetName];
-              const newIndex = workbook.SheetNames.indexOf(sheetName);
-              if (newIndex > -1) {
-                workbook.SheetNames.splice(newIndex, 1);
-              }
-
-              const worksheet = XLSX.utils.json_to_sheet(mergedData);
-              XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-            } else {
-              const worksheet = XLSX.utils.json_to_sheet(sheetData);
-
-              if (workbook.SheetNames.includes(sheetName)) {
-                delete workbook.Sheets[sheetName];
-                const idx = workbook.SheetNames.indexOf(sheetName);
-                if (idx > -1) {
-                  workbook.SheetNames.splice(idx, 1);
-                }
-              }
-
-              XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-            }
-
+            sheetDataMap.set(sheetName, sheetData);
             totalRows += sheetData.length;
           }
         } else {
           // Legacy single query mode
           let sheetName = this.sanitizeSheetName(baseSheetName);
+          sheetsToUpdate.add(sheetName);
 
           let sheetData: any[];
           if (connectionFailedMessage) {
@@ -196,109 +145,80 @@ export class ExcelAdapter implements DestinationAdapter {
             sheetData = data;
           }
 
-          if (mode === "append" && workbook.SheetNames.includes(sheetName)) {
-            const existingSheet = workbook.Sheets[sheetName];
-            const existingData = XLSX.utils.sheet_to_json(existingSheet);
-            const mergedData = [...existingData, ...sheetData];
-
-            delete workbook.Sheets[sheetName];
-            const newIndex = workbook.SheetNames.indexOf(sheetName);
-            if (newIndex > -1) {
-              workbook.SheetNames.splice(newIndex, 1);
-            }
-
-            const worksheet = XLSX.utils.json_to_sheet(mergedData);
-            XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-          } else {
-            const worksheet = XLSX.utils.json_to_sheet(sheetData);
-
-            if (workbook.SheetNames.includes(sheetName)) {
-              delete workbook.Sheets[sheetName];
-              const idx = workbook.SheetNames.indexOf(sheetName);
-              if (idx > -1) {
-                workbook.SheetNames.splice(idx, 1);
-              }
-            }
-
-            XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-          }
-
+          sheetDataMap.set(sheetName, sheetData);
           totalRows += sheetData.length;
         }
       }
 
-      // Write file
-      XLSX.writeFile(workbook, actualFilePath);
-
       logger.info(
-        `Excel file created with ${dataWithMeta.length} sheets: ${actualFilePath} | ${totalRows} total rows`
+        `[Excel Adapter] Sheets to update: ${Array.from(sheetsToUpdate).join(', ')}`,
+        meta.jobId
       );
 
-      // Build summary sheet
-      try {
-        const summarySheetName = (config as any).summarySheetName || "Summary";
-        const summaryHeaders = [
-          "timestamp",
-          "connectionName",
-          "server",
-          "database",
-          "financialYear",
-          "group",
-          "partner",
-          "status",
-          "rows",
-        ];
+      // Update ONLY the sheets in our update list
+      for (const sheetName of sheetsToUpdate) {
+        const sheetData = sheetDataMap.get(sheetName) || [];
+        let worksheet = workbook.getWorksheet(sheetName);
 
-        const runTimeIso =
-          meta && (meta as any).runTime
-            ? new Date((meta as any).runTime).toISOString()
-            : new Date().toISOString();
+        if (mode === "append" && worksheet) {
+          // Append mode: Add to existing sheet data
+          const existingRowCount = worksheet.rowCount;
 
-        const summaryRows = dataWithMeta.map((item) => {
-          const conn: any = item.connection;
-          const status = item.connectionFailedMessage
-            ? `FAILED: ${item.connectionFailedMessage}`
-            : `SUCCESS: ${item.data.length} rows`;
+          // Add new rows
+          sheetData.forEach((row: any) => {
+            worksheet!.addRow(row);
+          });
 
-          return [
-            runTimeIso,
-            conn.name || "",
-            conn.server || "",
-            conn.database || "",
-            conn.financialYear || "",
-            conn.group || "",
-            conn.partner || "",
-            status,
-            item.data.length || 0,
-          ];
-        });
+          logger.info(
+            `[Excel Adapter] Appending to sheet "${sheetName}": ${existingRowCount} + ${sheetData.length} = ${worksheet.rowCount} rows`,
+            meta.jobId
+          );
+        } else {
+          // Replace mode: Remove old sheet completely and create fresh
+          if (worksheet) {
+            // Remove the existing sheet to avoid any style/format interference
+            workbook.removeWorksheet(worksheet.id);
+            logger.info(
+              `[Excel Adapter] Removed old sheet "${sheetName}" for replacement`,
+              meta.jobId
+            );
+          }
 
-        // Create or replace summary sheet
-        const summarySheet = XLSX.utils.json_to_sheet([
-          // Convert rows to objects matching headers for easy appending
-          ...summaryRows.map((r) => {
-            const obj: any = {};
-            summaryHeaders.forEach((h, i) => (obj[h] = r[i]));
-            return obj;
-          }),
-        ]);
+          // Create fresh worksheet (no leftover styles/formats)
+          worksheet = workbook.addWorksheet(sheetName);
+          logger.info(
+            `[Excel Adapter] Creating fresh sheet "${sheetName}" with ${sheetData.length} rows`,
+            meta.jobId
+          );
 
-        // Remove existing summary sheet if present
-        if (workbook.SheetNames.includes(summarySheetName)) {
-          delete workbook.Sheets[summarySheetName];
-          const idx = workbook.SheetNames.indexOf(summarySheetName);
-          if (idx > -1) workbook.SheetNames.splice(idx, 1);
+          // Add headers and data
+          if (sheetData && sheetData.length > 0) {
+            const headers = Object.keys(sheetData[0]);
+            worksheet.columns = headers.map((h) => ({
+              header: h,
+              key: h,
+              width: 15,
+            }));
+
+            // Add data rows
+            sheetData.forEach((row: any) => {
+              worksheet!.addRow(row);
+            });
+          }
         }
-
-        XLSX.utils.book_append_sheet(workbook, summarySheet, summarySheetName);
-
-        // Write file again with summary sheet
-        XLSX.writeFile(workbook, actualFilePath);
-      } catch (err: any) {
-        logger.warn(
-          `Failed to write Excel summary sheet: ${err?.message || err}`
-        );
       }
+
+      // Write file using ExcelJS (preserves formulas in untouched sheets automatically)
+      await workbook.xlsx.writeFile(actualFilePath);
+
+      logger.info(
+        `[Excel Adapter] ✅ File written successfully: ${actualFilePath}`,
+        meta.jobId
+      );
+      logger.info(
+        `[Excel Adapter] Data sheets updated: ${sheetsToUpdate.size} | Total rows: ${totalRows}`,
+        meta.jobId
+      );
 
       return {
         success: true,
@@ -317,11 +237,6 @@ export class ExcelAdapter implements DestinationAdapter {
     }
   }
 
-  // Sanitize sheet name (max 31 chars, no special chars)
-  private sanitizeSheetName(name: string): string {
-    return name.replace(/[:\\\/\?\*\[\]]/g, "_").substring(0, 31);
-  }
-
   async send(
     data: any[],
     config: ExcelDestination,
@@ -329,16 +244,23 @@ export class ExcelAdapter implements DestinationAdapter {
   ): Promise<SendResult> {
     let { filePath, sheetName = "Sheet1", mode = "replace" } = config;
 
+    // Normalize slash direction
+    filePath = filePath.replace(/\\/g, "/");
+
     // Replace placeholders in filePath
     filePath = filePath
+      .replace(/{connectionName}/g, meta.connectionName || "unknown")
       .replace(/{jobId}/g, meta.jobId)
       .replace(/{jobName}/g, meta.jobName)
-      .replace(/{connectionId}/g, meta.connectionId || "unknown")
-      .replace(/{connectionName}/g, meta.connectionName || "unknown")
       .replace(
         /{runTime}/g,
         meta.runTime.toISOString().slice(0, 19).replace(/:/g, "-")
-      ); // YYYY-MM-DDTHH-MM-SS
+      )
+      .replace(/{database}/g, (meta as any).database || "default")
+      .replace(/{server}/g, (meta as any).server || "default")
+      .replace(/{financialYear}/g, (meta as any).financialYear || "")
+      .replace(/{group}/g, (meta as any).group || "")
+      .replace(/{partner}/g, (meta as any).partner || "");
 
     try {
       let actualFilePath = filePath;
@@ -375,42 +297,86 @@ export class ExcelAdapter implements DestinationAdapter {
       // Update filePath for rest of function
       const finalFilePath = actualFilePath;
 
-      let workbook: XLSX.WorkBook;
-      let worksheet: XLSX.WorkSheet;
+      const workbook = new ExcelJS.Workbook();
+      let existingFile = false;
 
-      // Check if file exists and mode is append
-      if (mode === "append" && fs.existsSync(finalFilePath)) {
-        // Read existing workbook
-        workbook = XLSX.readFile(finalFilePath);
+      // Check if file exists
+      if (fs.existsSync(finalFilePath)) {
+        existingFile = true;
+        await workbook.xlsx.readFile(finalFilePath);
 
-        // Get or create sheet
-        if (workbook.SheetNames.includes(sheetName)) {
-          worksheet = workbook.Sheets[sheetName];
+        logger.info(
+          `[Excel Adapter] Existing file found. Updating only "${sheetName}"`,
+          meta.jobId
+        );
 
-          // Convert existing sheet to JSON
-          const existingData = XLSX.utils.sheet_to_json(worksheet);
+        // Get or create worksheet
+        let worksheet = workbook.getWorksheet(sheetName);
 
-          // Merge with new data
-          const mergedData = [...existingData, ...data];
+        // Check mode
+        if (mode === "append" && worksheet) {
+          // Append mode: Add to existing sheet data
+          const existingRowCount = worksheet.rowCount;
 
-          // Convert back to worksheet
-          worksheet = XLSX.utils.json_to_sheet(mergedData);
+          // Add new rows
+          data.forEach((row: any) => {
+            worksheet!.addRow(row);
+          });
+
+          logger.info(
+            `[Excel Adapter] Appending to sheet "${sheetName}": ${existingRowCount} + ${data.length} = ${worksheet.rowCount} rows`,
+            meta.jobId
+          );
         } else {
-          // Create new sheet with data
-          worksheet = XLSX.utils.json_to_sheet(data);
-          workbook.SheetNames.push(sheetName);
+          // Replace mode: Remove old sheet and create fresh one
+          if (worksheet) {
+            // Remove existing sheet to avoid style/format carryover
+            workbook.removeWorksheet(worksheet.id);
+            logger.info(
+              `[Excel Adapter] Removed old sheet "${sheetName}" for replacement`,
+              meta.jobId
+            );
+          }
+
+          // Create fresh worksheet
+          worksheet = workbook.addWorksheet(sheetName);
+          logger.info(
+            `[Excel Adapter] Creating fresh sheet "${sheetName}" with ${data.length} rows`,
+            meta.jobId
+          );
+
+          // Add headers and data
+          if (data.length > 0) {
+            const headers = Object.keys(data[0]);
+            worksheet.columns = headers.map((h) => ({ header: h, key: h }));
+
+            // Add data rows
+            data.forEach((row: any) => {
+              worksheet!.addRow(row);
+            });
+          }
+        }
+      } else {
+        // Create new workbook (file doesn't exist)
+        const worksheet = workbook.addWorksheet(sheetName);
+
+        // Add headers and data
+        if (data.length > 0) {
+          const headers = Object.keys(data[0]);
+          worksheet.columns = headers.map((h) => ({ header: h, key: h }));
+          data.forEach((row: any) => {
+            worksheet.addRow(row);
+          });
         }
 
-        workbook.Sheets[sheetName] = worksheet;
-      } else {
-        // Create new workbook (replace mode or file doesn't exist)
-        worksheet = XLSX.utils.json_to_sheet(data);
-        workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+        logger.info(
+          `[Excel Adapter] Creating new file with sheet "${sheetName}" (${data.length} rows)`,
+          meta.jobId
+        );
       }
 
-      // Write file
-      XLSX.writeFile(workbook, finalFilePath);
+      // Write file (ExcelJS preserves formulas in untouched sheets automatically)
+      await workbook.xlsx.writeFile(finalFilePath);
 
       logger.info(
         `Excel file ${
@@ -425,7 +391,7 @@ export class ExcelAdapter implements DestinationAdapter {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Unknown error";
-      logger.error("Excel adapter error: " + errorMessage);
+      logger.error("Excel write error: " + errorMessage);
 
       return {
         success: false,
@@ -435,30 +401,28 @@ export class ExcelAdapter implements DestinationAdapter {
     }
   }
 
-  async sendBatch(
-    batches: any[][],
-    config: ExcelDestination,
-    meta: JobMeta
-  ): Promise<SendResult> {
-    // For batch mode, concatenate all batches and write once
-    const allData = batches.flat();
-    return await this.send(allData, config, meta);
+  // Sanitize sheet name (max 31 chars, no special chars)
+  private sanitizeSheetName(name: string): string {
+    return name.replace(/[:\\\/\?\*\[\]]/g, "_").substring(0, 31);
   }
 
+  // Helper method to get sheet name based on connection and format
   private getSheetName(
     connection: any,
-    format: "connectionName" | "databaseName" | "storeName"
+    format: "connectionName" | "databaseName" | "databaseAndYear" | string
   ): string {
     switch (format) {
       case "connectionName":
-        return connection.name || connection.database || "Sheet";
-      case "storeName":
-        return (
-          connection.store || connection.database || connection.name || "Sheet"
-        );
+        return connection.name || "Sheet1";
+
+      case "databaseAndYear":
+        return `${connection.database || "DB"} - ${
+          connection.financialYear || "FY"
+        }`;
+
       case "databaseName":
       default:
-        return connection.database || connection.name || "Sheet";
+        return connection.database || connection.name || "Sheet1";
     }
   }
 }

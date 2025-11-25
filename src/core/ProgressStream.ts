@@ -11,7 +11,8 @@ export interface ProgressEvent {
     | "job:connection:completed"
     | "job:connection:failed"
     | "job:completed"
-    | "job:failed";
+    | "job:failed"
+    | "job:cancelled";
   timestamp: Date;
   data: any;
 }
@@ -19,7 +20,7 @@ export interface ProgressEvent {
 export interface JobProgress {
   jobId: string;
   jobName?: string;
-  status: "pending" | "running" | "completed" | "failed";
+  status: "pending" | "running" | "completed" | "failed" | "cancelled";
   startedAt?: Date;
   completedAt?: Date;
   totalConnections: number;
@@ -29,6 +30,7 @@ export interface JobProgress {
   percentage: number;
   errors?: string[];
   connectionProgress?: Map<string, ConnectionProgress>;
+  cancelRequested?: boolean; // Flag to indicate cancellation requested
 }
 
 export interface ConnectionProgress {
@@ -394,4 +396,98 @@ export class ProgressStream extends EventEmitter {
       }
     }
   }
+
+  /**
+   * Request cancellation of a running job
+   */
+  cancelJob(jobId: string): boolean {
+    const progress = this.jobProgressMap.get(jobId);
+    if (!progress) {
+      logger.warn(`Cannot cancel job ${jobId}: not found in progress map`);
+      return false;
+    }
+
+    if (progress.status !== "running") {
+      logger.warn(
+        `Cannot cancel job ${jobId}: status is ${progress.status}, not running`
+      );
+      return false;
+    }
+
+    progress.cancelRequested = true;
+    logger.info(`✋ Cancellation requested for job: ${jobId} (${progress.jobName})`);
+
+    this.emitProgress({
+      jobId,
+      type: "job:progress",
+      timestamp: new Date(),
+      data: {
+        message: "Cancellation requested",
+        cancelRequested: true,
+      },
+    });
+
+    return true;
+  }
+
+  /**
+   * Check if cancellation has been requested for a job
+   */
+  isCancellationRequested(jobId: string): boolean {
+    const progress = this.jobProgressMap.get(jobId);
+    const requested = progress?.cancelRequested === true;
+    
+    if (requested) {
+      logger.info(`🛑 Cancellation check: Job ${jobId} has cancel flag = true`);
+    }
+    
+    return requested;
+  }
+
+  /**
+   * Mark job as cancelled
+   */
+  cancelJobComplete(jobId: string): void {
+    const progress = this.jobProgressMap.get(jobId);
+    if (!progress) return;
+
+    progress.status = "cancelled";
+    progress.completedAt = new Date();
+    progress.cancelRequested = false; // Clear the flag
+
+    const duration =
+      progress.completedAt.getTime() - (progress.startedAt?.getTime() || 0);
+
+    logger.info(
+      `❌ Job ${jobId} (${progress.jobName}) cancelled successfully after ${(duration / 1000).toFixed(1)}s`
+    );
+
+    // Send proper cancelled event (not failed)
+    this.emitProgress({
+      jobId,
+      type: "job:cancelled",
+      timestamp: new Date(),
+      data: {
+        message: "Job cancelled by user",
+        completedConnections: progress.completedConnections,
+        failedConnections: progress.failedConnections,
+        duration,
+      },
+    });
+
+    // Emit for history tracking
+    this.emit("job:finished", {
+      jobId,
+      status: "cancelled",
+      progress,
+      error: "Job cancelled by user",
+      duration,
+    });
+
+    // Clean up after 5 minutes
+    setTimeout(() => {
+      this.jobProgressMap.delete(jobId);
+    }, 300000);
+  }
 }
+

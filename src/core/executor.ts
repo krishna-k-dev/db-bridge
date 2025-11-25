@@ -82,6 +82,16 @@ export class JobExecutor {
     }> = [];
 
     for (const connection of connections) {
+      // Check if cancellation has been requested
+      if (this.progressStream.isCancellationRequested(job.id)) {
+        logger.warn(
+          `Job ${job.name} cancelled during connection ${connection.name}`,
+          job.id
+        );
+        this.progressStream.cancelJobComplete(job.id);
+        return;
+      }
+
       const connector = new SQLConnector();
 
       // Start tracking this connection
@@ -102,6 +112,17 @@ export class JobExecutor {
           step: "Executing query",
         });
 
+        // Check cancellation before executing queries
+        if (this.progressStream.isCancellationRequested(job.id)) {
+          logger.warn(
+            `Job ${job.name} cancelled before query execution on ${connection.name}`,
+            job.id
+          );
+          await connector.disconnect();
+          this.progressStream.cancelJobComplete(job.id);
+          return;
+        }
+
         // Support multi-query: if job.queries exists, execute all; otherwise use legacy job.query
         let data: any[] = [];
         let queryResults: { [queryName: string]: any[] } = {};
@@ -114,6 +135,17 @@ export class JobExecutor {
           );
 
           for (const queryItem of job.queries) {
+            // Check cancellation before each query
+            if (this.progressStream.isCancellationRequested(job.id)) {
+              logger.warn(
+                `Job ${job.name} cancelled during query "${queryItem.name}" on ${connection.name}`,
+                job.id
+              );
+              await connector.disconnect();
+              this.progressStream.cancelJobComplete(job.id);
+              return;
+            }
+
             logger.info(
               `Executing query "${queryItem.name}" on ${connection.name}`,
               job.id
@@ -200,6 +232,16 @@ export class JobExecutor {
 
     // Update last run time
     job.lastRun = new Date();
+
+    // Check cancellation before sending to destinations
+    if (this.progressStream.isCancellationRequested(job.id)) {
+      logger.warn(
+        `Job ${job.name} cancelled before sending to destinations`,
+        job.id
+      );
+      this.progressStream.cancelJobComplete(job.id);
+      return;
+    }
 
     // Update progress for destination sending
     this.progressStream.updateJobStep(
@@ -364,12 +406,27 @@ export class JobExecutor {
     const connector = new SQLConnector();
 
     try {
+      // Check cancellation at start
+      if (this.progressStream.isCancellationRequested(job.id)) {
+        logger.warn(`Job ${job.name} cancelled before connecting`, job.id);
+        this.progressStream.cancelJobComplete(job.id);
+        return;
+      }
+
       // Connect to database
       this.progressStream.updateConnectionProgress(job.id, connection.id, {
         step: "Connecting to database",
       });
 
       await connector.connect(connection);
+
+      // Check cancellation before executing query
+      if (this.progressStream.isCancellationRequested(job.id)) {
+        logger.warn(`Job ${job.name} cancelled before query execution`, job.id);
+        await connector.disconnect();
+        this.progressStream.cancelJobComplete(job.id);
+        return;
+      }
 
       // Execute query
       this.progressStream.updateConnectionProgress(job.id, connection.id, {
@@ -405,6 +462,17 @@ export class JobExecutor {
 
       // Update last run time
       job.lastRun = new Date();
+
+      // Check cancellation before sending to destinations
+      if (this.progressStream.isCancellationRequested(job.id)) {
+        logger.warn(
+          `Job ${job.name} cancelled before sending to destinations`,
+          job.id
+        );
+        await connector.disconnect();
+        this.progressStream.cancelJobComplete(job.id);
+        return;
+      }
 
       // Create job metadata
       const meta: JobMeta = {

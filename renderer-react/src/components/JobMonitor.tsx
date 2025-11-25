@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
-import { X, ChevronDown, ChevronUp, Activity, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
+import { X, ChevronDown, ChevronUp, Activity, CheckCircle2, XCircle, Loader2, StopCircle } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 
 // @ts-ignore - Electron types
 const { ipcRenderer } = window.require('electron')
@@ -8,7 +9,7 @@ const { ipcRenderer } = window.require('electron')
 interface JobProgress {
     jobId: string
     jobName?: string
-    status: 'pending' | 'running' | 'completed' | 'failed'
+    status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
     startedAt?: Date
     completedAt?: Date
     totalConnections: number
@@ -18,6 +19,7 @@ interface JobProgress {
     percentage: number
     errors?: string[]
     connectionProgress?: Map<string, ConnectionProgress>
+    cancelRequested?: boolean
 }
 
 interface ConnectionProgress {
@@ -79,6 +81,11 @@ const JobMonitor = () => {
                         if (job) {
                             job.currentStep = progressEvent.data.step
                             job.percentage = clamp(progressEvent.data.percentage ?? job.percentage)
+                            
+                            // Handle cancellation request flag
+                            if (progressEvent.data.cancelRequested) {
+                                job.cancelRequested = true
+                            }
                         }
                         break
 
@@ -164,6 +171,31 @@ const JobMonitor = () => {
                             if (!job.errors) job.errors = []
                             job.errors.push(progressEvent.data.error)
                         }
+                        // Auto-hide failed jobs after 3 seconds
+                        setTimeout(() => {
+                            setJobs(prev => {
+                                const updated = new Map(prev)
+                                updated.delete(progressEvent.jobId)
+                                return updated
+                            })
+                        }, 3000)
+                        break
+
+                    case 'job:cancelled':
+                        if (job) {
+                            job.status = 'cancelled'
+                            job.completedAt = new Date(progressEvent.timestamp)
+                            job.cancelRequested = false
+                            job.percentage = 100 // Show completed progress bar
+                        }
+                        // Auto-hide cancelled jobs after 2 seconds
+                        setTimeout(() => {
+                            setJobs(prev => {
+                                const updated = new Map(prev)
+                                updated.delete(progressEvent.jobId)
+                                return updated
+                            })
+                        }, 2000)
                         break
                 }
 
@@ -319,24 +351,51 @@ const JobMonitor = () => {
                                             {job.status === 'running' && <Loader2 className="w-4 h-4 text-blue-600 animate-spin" />}
                                             {job.status === 'completed' && <CheckCircle2 className="w-4 h-4 text-green-600" />}
                                             {job.status === 'failed' && <XCircle className="w-4 h-4 text-red-600" />}
+                                            {job.status === 'cancelled' && <XCircle className="w-4 h-4 text-orange-600" />}
                                             <span className="font-medium text-sm truncate block max-w-full">{job.jobName || job.jobId}</span>
                                         </div>
-                                        {job.currentStep && (
+                                        {job.cancelRequested && job.status === 'running' && (
+                                            <p className="text-xs text-orange-600 mt-1 truncate max-w-full overflow-hidden">Cancelling...</p>
+                                        )}
+                                        {job.currentStep && !job.cancelRequested && (
                                             <p className="text-xs text-gray-600 mt-1 truncate max-w-full overflow-hidden">{job.currentStep}</p>
                                         )}
                                     </div>
-                                    {job.totalConnections > 0 && (
-                                        <button
-                                            onClick={() => toggleExpanded(job.jobId)}
-                                            className="p-1 hover:bg-gray-100 rounded transition-colors"
-                                        >
-                                            {expanded.has(job.jobId) ? (
-                                                <ChevronUp className="w-4 h-4 text-gray-600" />
-                                            ) : (
-                                                <ChevronDown className="w-4 h-4 text-gray-600" />
-                                            )}
-                                        </button>
-                                    )}
+                                    <div className="flex items-center gap-1">
+                                        {job.status === 'running' && !job.cancelRequested && (
+                                            <button
+                                                onClick={async () => {
+                                                    try {
+                                                        const result = await ipcRenderer.invoke('cancel-job', job.jobId)
+                                                        if (result.success) {
+                                                            toast.success('Job cancellation requested')
+                                                        } else {
+                                                            toast.error(result.message || 'Failed to cancel job')
+                                                        }
+                                                    } catch (err: any) {
+                                                        console.error('Failed to cancel job', err)
+                                                        toast.error(err.message || 'Failed to cancel job')
+                                                    }
+                                                }}
+                                                className="p-1 hover:bg-red-100 rounded transition-colors"
+                                                title="Cancel Job"
+                                            >
+                                                <StopCircle className="w-4 h-4 text-red-600" />
+                                            </button>
+                                        )}
+                                        {job.totalConnections > 0 && (
+                                            <button
+                                                onClick={() => toggleExpanded(job.jobId)}
+                                                className="p-1 hover:bg-gray-100 rounded transition-colors"
+                                            >
+                                                {expanded.has(job.jobId) ? (
+                                                    <ChevronUp className="w-4 h-4 text-gray-600" />
+                                                ) : (
+                                                    <ChevronDown className="w-4 h-4 text-gray-600" />
+                                                )}
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
 
                                 {/* Progress Bar */}
@@ -350,6 +409,7 @@ const JobMonitor = () => {
                                             className={`h-2 rounded-full transition-all duration-300 ${
                                                 job.status === 'completed' ? 'bg-green-600' :
                                                 job.status === 'failed' ? 'bg-red-600' :
+                                                job.status === 'cancelled' ? 'bg-orange-500' :
                                                 'bg-blue-600'
                                             }`}
                                             style={{ width: `${clamp(job.percentage)}%` }}
