@@ -425,4 +425,165 @@ export class ExcelAdapter implements DestinationAdapter {
         return connection.database || connection.name || "Sheet1";
     }
   }
+
+  /**
+   * Progressive write: Write single connection data immediately
+   * Used for memory-efficient processing of large multi-connection jobs
+   */
+  async sendSingleConnectionProgressive(
+    connection: any,
+    data: any[],
+    config: ExcelDestination,
+    meta: {
+      jobId: string;
+      jobName: string;
+      runTime: Date;
+      settings?: any;
+      queryResults?: { [queryName: string]: any[] };
+      connectionFailedMessage?: string;
+    }
+  ): Promise<SendResult> {
+    let { filePath, mode = "replace" } = config;
+
+    // Replace placeholders in filePath
+    filePath = filePath
+      .replace(/{jobId}/g, meta.jobId)
+      .replace(/{jobName}/g, meta.jobName)
+      .replace(
+        /{runTime}/g,
+        meta.runTime.toISOString().slice(0, 19).replace(/:/g, "-")
+      );
+
+    try {
+      let actualFilePath = filePath;
+
+      // Auto-fix: Add .xlsx extension if missing
+      if (
+        !actualFilePath.endsWith(".xlsx") &&
+        !actualFilePath.endsWith(".xls")
+      ) {
+        if (
+          fs.existsSync(actualFilePath) &&
+          fs.statSync(actualFilePath).isDirectory()
+        ) {
+          actualFilePath = path.join(
+            actualFilePath,
+            `${meta.jobName}_${Date.now()}.xlsx`
+          );
+        } else {
+          actualFilePath = actualFilePath + ".xlsx";
+        }
+      }
+
+      // Ensure directory exists
+      const dir = path.dirname(actualFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      const workbook = new ExcelJS.Workbook();
+
+      // Load existing file if it exists (for progressive writing)
+      if (fs.existsSync(actualFilePath)) {
+        await workbook.xlsx.readFile(actualFilePath);
+      }
+
+      const format = meta.settings?.sheetNameFormat || "databaseName";
+      let baseSheetName = this.getSheetName(connection, format);
+
+      // Handle multi-query: Create separate sheets for each query
+      if (meta.queryResults && Object.keys(meta.queryResults).length > 0) {
+        for (const [queryName, queryData] of Object.entries(
+          meta.queryResults
+        )) {
+          const sheetName = `${baseSheetName}-${queryName}`;
+          await this.writeSheetData(
+            workbook,
+            sheetName,
+            queryData,
+            meta.connectionFailedMessage
+          );
+        }
+      } else {
+        // Single query mode
+        await this.writeSheetData(
+          workbook,
+          baseSheetName,
+          data,
+          meta.connectionFailedMessage
+        );
+      }
+
+      // Write to file immediately
+      await workbook.xlsx.writeFile(actualFilePath);
+
+      logger.info(
+        `💾 Progressive write: ${connection.name || connection.database} (${data.length} rows) written to ${actualFilePath}`,
+        meta.jobId
+      );
+
+      return {
+        success: true,
+        message: `Connection ${connection.name} data written progressively`,
+      };
+    } catch (error: any) {
+      logger.error(
+        `Failed to write Excel progressively for ${connection.name}: ${error.message}`,
+        meta.jobId,
+        error
+      );
+      return {
+        success: false,
+        message: `Failed to write Excel: ${error.message}`,
+        error,
+      };
+    }
+  }
+
+  /**
+   * Helper method to write data to a worksheet
+   */
+  private async writeSheetData(
+    workbook: ExcelJS.Workbook,
+    sheetName: string,
+    data: any[],
+    errorMessage?: string
+  ): Promise<void> {
+    // Remove existing sheet if it exists
+    const existingSheet = workbook.getWorksheet(sheetName);
+    if (existingSheet) {
+      workbook.removeWorksheet(existingSheet.id);
+    }
+
+    // Create fresh sheet
+    const worksheet = workbook.addWorksheet(sheetName);
+
+    if (errorMessage) {
+      // Write error message if connection failed
+      worksheet.columns = [{ header: "Error", key: "error", width: 50 }];
+      worksheet.addRow({ error: errorMessage });
+      worksheet.getCell("A1").font = { bold: true, color: { argb: "FFFF0000" } };
+    } else if (data.length > 0) {
+      // Write data headers and rows
+      const headers = Object.keys(data[0]);
+      worksheet.columns = headers.map((h) => ({
+        header: h,
+        key: h,
+        width: 15,
+      }));
+
+      // Add rows
+      data.forEach((row) => {
+        worksheet.addRow(row);
+      });
+
+      // Format header row
+      worksheet.getRow(1).font = { bold: true };
+      worksheet.getRow(1).fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFD3D3D3" },
+      };
+    }
+  }
 }

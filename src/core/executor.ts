@@ -48,8 +48,21 @@ export class JobExecutor {
       return true;
     });
 
-    // Initialize progress tracking
-    this.progressStream.startJob(job.id, job.name, connections.length);
+    // Initialize progress tracking (with checkpoint resume support)
+    const resumeFromCheckpoint = !!process.env.RESUME_JOBS; // Enable via env var
+    this.progressStream.startJob(job.id, job.name, connections.length, resumeFromCheckpoint);
+    
+    // Get checkpoint to skip already-completed connections
+    const jobProgress = this.progressStream.getJobProgress(job.id);
+    const completedIds = new Set(jobProgress?.checkpoint?.completedConnectionIds || []);
+    
+    if (completedIds.size > 0) {
+      logger.info(
+        `⏩ Resuming job: Skipping ${completedIds.size} already-completed connections`,
+        job.id
+      );
+    }
+
     this.progressStream.updateJobStep(
       job.id,
       "Executing queries on connections"
@@ -82,6 +95,44 @@ export class JobExecutor {
     }> = [];
 
     for (const connection of connections) {
+      // MEMORY CHECK: Stop job if memory usage is critical
+      const memUsage = process.memoryUsage();
+      const heapUsedMB = memUsage.heapUsed / 1024 / 1024;
+      const heapTotalMB = memUsage.heapTotal / 1024 / 1024;
+      const memoryThresholdMB = Number(process.env.MEMORY_THRESHOLD_MB) || 1024; // Default 1GB
+
+      if (heapUsedMB > memoryThresholdMB) {
+        const errorMsg = `⚠️ Memory threshold exceeded: ${heapUsedMB.toFixed(0)}MB / ${memoryThresholdMB}MB. Stopping job gracefully to prevent crash.`;
+        logger.error(errorMsg, job.id);
+        
+        this.progressStream.failJob(job.id, errorMsg);
+        
+        // Force garbage collection if available
+        if (global.gc) {
+          logger.info("🧹 Running garbage collection...", job.id);
+          global.gc();
+        }
+        
+        return;
+      }
+
+      // Log memory usage periodically
+      if (dataWithMeta.length % 10 === 0) {
+        logger.info(
+          `💾 Memory usage: ${heapUsedMB.toFixed(0)}MB / ${heapTotalMB.toFixed(0)}MB (${((heapUsedMB/heapTotalMB)*100).toFixed(1)}%)`,
+          job.id
+        );
+      }
+
+      // CHECKPOINT RESUME: Skip already-completed connections
+      if (completedIds.has(connection.id)) {
+        logger.info(
+          `⏭️ Skipping already-completed connection: ${connection.name}`,
+          job.id
+        );
+        continue;
+      }
+
       // Check if cancellation has been requested
       if (this.progressStream.isCancellationRequested(job.id)) {
         logger.warn(
@@ -179,6 +230,47 @@ export class JobExecutor {
 
         dataWithMeta.push({ connection, data, queryResults });
 
+        // PROGRESSIVE WRITE: Write data immediately for Excel/CSV
+        // This prevents memory overflow with large multi-connection jobs
+        const progressiveDestinations = ["excel", "csv"];
+        for (const destination of job.destinations) {
+          if (progressiveDestinations.includes(destination.type)) {
+            try {
+              const adapter = getAdapter(destination.type) as any;
+              
+              if (adapter && typeof adapter.sendSingleConnectionProgressive === "function") {
+                this.progressStream.updateConnectionProgress(job.id, connection.id, {
+                  step: `Writing to ${destination.type}...`,
+                });
+
+                await adapter.sendSingleConnectionProgressive(
+                  connection,
+                  data,
+                  destination,
+                  {
+                    jobId: job.id,
+                    jobName: job.name,
+                    runTime: job.lastRun || new Date(),
+                    settings: this.settings,
+                    queryResults,
+                  }
+                );
+
+                logger.info(
+                  `✅ Progressive write completed for ${connection.name} to ${destination.type}`,
+                  job.id
+                );
+              }
+            } catch (error: any) {
+              logger.error(
+                `Progressive write failed for ${connection.name} to ${destination.type}: ${error.message}`,
+                job.id,
+                error
+              );
+            }
+          }
+        }
+
         // HYBRID BATCHING: Add data to buffer ONLY for Google Sheets
         // Custom API and Webhook will send once after all queries complete
         if (hasStreamingDestinations && data.length > 0) {
@@ -187,6 +279,24 @@ export class JobExecutor {
           });
 
           await this.dataBuffer.addToBuffer(job.id, job, connection, data);
+        }
+
+        // MEMORY CLEANUP: Clear processed data to prevent memory overflow
+        // Keep only minimal metadata for non-progressive destinations
+        const hasNonProgressiveDestinations = job.destinations.some(
+          (d) => !progressiveDestinations.includes(d.type) && d.type !== "google_sheets"
+        );
+
+        if (!hasNonProgressiveDestinations) {
+          // Clear data from memory if only progressive or streaming destinations
+          data = [];
+          if (queryResults) {
+            for (const key in queryResults) {
+              queryResults[key] = [];
+            }
+          }
+          
+          logger.info(`🧹 Memory cleaned for ${connection.name}`, job.id);
         }
 
         // Mark connection as completed

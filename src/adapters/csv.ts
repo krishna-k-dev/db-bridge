@@ -151,4 +151,111 @@ export class CSVAdapter implements DestinationAdapter {
     const allData = batches.flat();
     return await this.send(allData, config, meta);
   }
+
+  /**
+   * Progressive write: Append single connection data immediately
+   * Used for memory-efficient processing of large multi-connection jobs
+   */
+  async sendSingleConnectionProgressive(
+    connection: any,
+    data: any[],
+    config: CSVDestination,
+    meta: {
+      jobId: string;
+      jobName: string;
+      runTime: Date;
+      settings?: any;
+      queryResults?: { [queryName: string]: any[] };
+      connectionFailedMessage?: string;
+    }
+  ): Promise<SendResult> {
+    let { filePath, delimiter = ",", includeHeaders = true } = config;
+
+    // Replace placeholders
+    filePath = filePath
+      .replace(/{jobId}/g, meta.jobId)
+      .replace(/{jobName}/g, meta.jobName)
+      .replace(/{connectionId}/g, connection.id || "unknown")
+      .replace(/{connectionName}/g, connection.name || connection.database || "unknown")
+      .replace(
+        /{runTime}/g,
+        meta.runTime.toISOString().slice(0, 19).replace(/:/g, "-")
+      );
+
+    try {
+      let actualFilePath = filePath;
+
+      // Auto-fix: Add .csv extension if missing
+      if (!actualFilePath.endsWith(".csv")) {
+        if (
+          fs.existsSync(actualFilePath) &&
+          fs.statSync(actualFilePath).isDirectory()
+        ) {
+          actualFilePath = path.join(
+            actualFilePath,
+            `${meta.jobName}_${Date.now()}.csv`
+          );
+        } else {
+          actualFilePath = actualFilePath + ".csv";
+        }
+      }
+
+      // Ensure directory exists
+      const dir = path.dirname(actualFilePath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      const fileExists = fs.existsSync(actualFilePath);
+
+      // Handle multi-query: Create separate files or sections
+      if (meta.queryResults && Object.keys(meta.queryResults).length > 0) {
+        for (const [queryName, queryData] of Object.entries(meta.queryResults)) {
+          const queryFilePath = actualFilePath.replace(
+            ".csv",
+            `_${queryName}.csv`
+          );
+          const queryFileExists = fs.existsSync(queryFilePath);
+          
+          const csv = this.convertToCSV(
+            queryData,
+            delimiter,
+            !queryFileExists // Only include headers if file doesn't exist
+          );
+
+          fs.appendFileSync(queryFilePath, csv + "\n", "utf8");
+        }
+      } else {
+        // Single query mode - append to main file
+        const csv = this.convertToCSV(
+          data,
+          delimiter,
+          !fileExists // Only include headers if file doesn't exist
+        );
+
+        fs.appendFileSync(actualFilePath, csv + "\n", "utf8");
+      }
+
+      logger.info(
+        `💾 Progressive CSV write: ${connection.name || connection.database} (${data.length} rows) appended to ${actualFilePath}`,
+        meta.jobId
+      );
+
+      return {
+        success: true,
+        message: `Connection ${connection.name} data appended to CSV`,
+      };
+    } catch (error: any) {
+      logger.error(
+        `Failed to write CSV progressively for ${connection.name}: ${error.message}`,
+        meta.jobId,
+        error
+      );
+      return {
+        success: false,
+        message: `Failed to write CSV: ${error.message}`,
+        error,
+      };
+    }
+  }
 }

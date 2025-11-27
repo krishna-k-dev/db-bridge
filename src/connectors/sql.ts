@@ -133,8 +133,14 @@ export class SQLConnector {
       throw new Error("Not connected to database. Call connect() first.");
     }
 
+    // Query timeout in milliseconds - default 5 minutes (300 seconds)
+    const timeoutMs = Number(process.env.QUERY_TIMEOUT_MS) || 300000;
+
     try {
       const request = this.pool.request();
+
+      // Set request timeout using proper mssql API
+      (request as any).timeout = timeoutMs;
 
       // Add parameters if provided
       if (params) {
@@ -143,11 +149,27 @@ export class SQLConnector {
         }
       }
 
+      logger.info(`Executing query with ${timeoutMs / 1000}s timeout...`);
+      const startTime = Date.now();
+      
       const result = await request.query(query);
+      
+      const duration = Date.now() - startTime;
+      logger.info(
+        `Query completed in ${(duration / 1000).toFixed(2)}s, returned ${result.recordset.length} rows`
+      );
+
       return result.recordset;
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
+      
+      // Check if it's a timeout error
+      if (errorMessage.includes('Timeout') || errorMessage.includes('timeout')) {
+        logger.error(`Query timeout: Query exceeded ${timeoutMs / 1000}s limit`, undefined, error);
+        throw new Error(`Query timeout: Query took too long to execute (limit: ${timeoutMs / 1000}s)`);
+      }
+      
       logger.error(`Query execution failed: ${errorMessage}`, undefined, error);
       throw error;
     }
